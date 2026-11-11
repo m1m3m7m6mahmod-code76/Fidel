@@ -1,4 +1,4 @@
-name: Build Fidel APK
+name: Build Fidel APK 
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v
         with:
           distribution: temurin
           java-version: '17'
