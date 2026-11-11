@@ -26,7 +26,7 @@ jobs:
       - name: Extract and build
         run: |
           mkdir extracted
-          unzip -q fidel_app_fixed.zip -d extracted -d extracted
+          unzip -q -d extracted fidel_app_fixed.zip
           PROJECT_DIR="$(dirname "$(find extracted -name pubspec.yaml -print -quit)")"
           test -n "$PROJECT_DIR"
           cd "$PROJECT_DIR"
