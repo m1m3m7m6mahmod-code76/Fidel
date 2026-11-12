@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "265989781088",
+    "project_id": "fidel-d29e1",
+    "storage_bucket": "fidel-d29e1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:265989781088:android:06add0a6673f4aacf8f505",
+        "android_client_info": {
+          "package_name": "com.fidel.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCl0LL4w63Ql7GZ4ouhB7MNvPG-LVKMz_4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
