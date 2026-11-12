@@ -1,4 +1,5 @@
 
+
 name: Build Fidel APK
 
 on:
@@ -23,15 +24,14 @@ jobs:
         with:
           channel: stable
 
-      - name: Extract and build
+      - name: Build Fidel App
         run: |
-          mkdir extracted
-          unzip -q -d extracted fidel_app_fixed.zip
-          PROJECT_DIR="$(dirname "$(find extracted -name pubspec.yaml -print -quit)")"
-          test -n "$PROJECT_DIR"
-          cd "$PROJECT_DIR"
-          flutter create --platforms=android .
+          test -f pubspec.yaml
+          test -f lib/main.dart
+          test -f assets/logo.png
+          flutter create --platforms=android --org com.fidel.app .
           flutter pub get
+          dart run flutter_launcher_icons
           flutter build apk --release
           cp build/app/outputs/flutter-apk/app-release.apk "$GITHUB_WORKSPACE/fidel-release.apk"
 
