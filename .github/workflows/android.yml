@@ -23,22 +23,37 @@ jobs:
         with:
           channel: stable
 
-      - name: Check Firebase Configuration
+      - name: Save Firebase Configuration
         run: |
           test -f pubspec.yaml
           test -f lib/main.dart
           test -f assets/logo.png
           test -f android/app/google-services.json
+          mkdir -p "$RUNNER_TEMP/fidel"
+          cp android/app/google-services.json "$RUNNER_TEMP/fidel/google-services.json"
+          rm -rf android
 
       - name: Generate Android Project
         run: |
           flutter create --platforms=android --org com.fidel.app .
+          mkdir -p android/app
+          cp "$RUNNER_TEMP/fidel/google-services.json" android/app/google-services.json
 
-      - name: Configure Firebase Android Plugin
+      - name: Configure Firebase
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import json
           import re
+
+          config = json.loads(Path("android/app/google-services.json").read_text())
+          packages = [
+              c["client_info"]["android_client_info"]["package_name"]
+              for c in config.get("client", [])
+              if "android_client_info" in c.get("client_info", {})
+          ]
+          if "com.fidel.app" not in packages:
+              raise SystemExit("Firebase package name must be com.fidel.app")
 
           settings = Path("android/settings.gradle.kts")
           if not settings.exists():
@@ -51,36 +66,65 @@ jobs:
           for path, is_settings in [(settings, True), (app, False)]:
               content = path.read_text()
 
-              if "com.google.gms.google-services" in content:
-                  continue
+              if "com.google.gms.google-services" not in content:
+                  if path.suffix == ".kts":
+                      line = (
+                          'id("com.google.gms.google-services") '
+                          'version "4.4.2" apply false'
+                          if is_settings
+                          else 'id("com.google.gms.google-services")'
+                      )
+                  else:
+                      line = (
+                          "id 'com.google.gms.google-services' "
+                          "version '4.4.2' apply false"
+                          if is_settings
+                          else "id 'com.google.gms.google-services'"
+                      )
 
-              if path.suffix == ".kts":
-                  line = (
-                      'id("com.google.gms.google-services") '
-                      'version "4.4.2" apply false'
-                      if is_settings
-                      else 'id("com.google.gms.google-services")'
+                  match = re.search(r'plugins\s*\{', content)
+                  if not match:
+                      raise SystemExit(f"plugins block not found: {path}")
+
+                  content = (
+                      content[:match.end()]
+                      + "\n    " + line
+                      + content[match.end():]
                   )
-              else:
-                  line = (
-                      "id 'com.google.gms.google-services' "
-                      "version '4.4.2' apply false"
-                      if is_settings
-                      else "id 'com.google.gms.google-services'"
-                  )
 
-              match = re.search(r'plugins\s*\{', content)
-              if not match:
-                  raise SystemExit(f"plugins block not found: {path}")
+              if not is_settings:
+                  if path.suffix == ".kts":
+                      content, count = re.subn(
+                          r'applicationId\s*=\s*["\'][^"\']+["\']',
+                          'applicationId = "com.fidel.app"',
+                          content,
+                          count=1
+                      )
+                      if count == 0:
+                          content = re.sub(
+                              r'defaultConfig\s*\{',
+                              'defaultConfig {\n        applicationId = "com.fidel.app"',
+                              content,
+                              count=1
+                          )
+                  else:
+                      content, count = re.subn(
+                          r'applicationId\s+["\'][^"\']+["\']',
+                          'applicationId "com.fidel.app"',
+                          content,
+                          count=1
+                      )
+                      if count == 0:
+                          content = re.sub(
+                              r'defaultConfig\s*\{',
+                              'defaultConfig {\n        applicationId "com.fidel.app"',
+                              content,
+                              count=1
+                          )
 
-              content = (
-                  content[:match.end()]
-                  + "\n    " + line
-                  + content[match.end():]
-              )
               path.write_text(content)
 
-          print("Firebase Android plugin configured.")
+          print("Firebase configuration completed successfully.")
           PY
 
       - name: Get Dependencies
