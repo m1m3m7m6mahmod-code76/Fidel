@@ -1,5 +1,4 @@
 
-
 name: Build Fidel APK
 
 on:
@@ -24,14 +23,74 @@ jobs:
         with:
           channel: stable
 
-      - name: Build Fidel App
+      - name: Check Firebase Configuration
         run: |
           test -f pubspec.yaml
           test -f lib/main.dart
           test -f assets/logo.png
+          test -f android/app/google-services.json
+
+      - name: Generate Android Project
+        run: |
           flutter create --platforms=android --org com.fidel.app .
-          flutter pub get
-          dart run flutter_launcher_icons
+
+      - name: Configure Firebase Android Plugin
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          settings = Path("android/settings.gradle.kts")
+          if not settings.exists():
+              settings = Path("android/settings.gradle")
+
+          app = Path("android/app/build.gradle.kts")
+          if not app.exists():
+              app = Path("android/app/build.gradle")
+
+          for path, is_settings in [(settings, True), (app, False)]:
+              content = path.read_text()
+
+              if "com.google.gms.google-services" in content:
+                  continue
+
+              if path.suffix == ".kts":
+                  line = (
+                      'id("com.google.gms.google-services") '
+                      'version "4.4.2" apply false'
+                      if is_settings
+                      else 'id("com.google.gms.google-services")'
+                  )
+              else:
+                  line = (
+                      "id 'com.google.gms.google-services' "
+                      "version '4.4.2' apply false"
+                      if is_settings
+                      else "id 'com.google.gms.google-services'"
+                  )
+
+              match = re.search(r'plugins\s*\{', content)
+              if not match:
+                  raise SystemExit(f"plugins block not found: {path}")
+
+              content = (
+                  content[:match.end()]
+                  + "\n    " + line
+                  + content[match.end():]
+              )
+              path.write_text(content)
+
+          print("Firebase Android plugin configured.")
+          PY
+
+      - name: Get Dependencies
+        run: flutter pub get
+
+      - name: Generate App Icon
+        run: dart run flutter_launcher_icons
+
+      - name: Build Fidel APK
+        run: |
           flutter build apk --release
           cp build/app/outputs/flutter-apk/app-release.apk "$GITHUB_WORKSPACE/fidel-release.apk"
 
