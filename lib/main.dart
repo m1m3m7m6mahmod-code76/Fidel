@@ -1,6 +1,9 @@
 
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+const String adminUid = 'mbYMqJC4fHUgf1Mf3IhzyEeOa982';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,7 +28,282 @@ class FidelApp extends StatelessWidget {
       ),
       home: const Directionality(
         textDirection: TextDirection.rtl,
-        child: HomePage(),
+        child: AuthGate(),
+      ),
+    );
+  }
+}
+
+// تشخیص ورود کاربر
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        if (snapshot.hasData) {
+          return const HomePage();
+        }
+
+        return const AuthPage();
+      },
+    );
+  }
+}
+
+// صفحه ورود و ثبت نام
+class AuthPage extends StatefulWidget {
+  const AuthPage({super.key});
+
+  @override
+  State<AuthPage> createState() => _AuthPageState();
+}
+
+class _AuthPageState extends State<AuthPage> {
+  final emailController = TextEditingController();
+  final passwordController = TextEditingController();
+  final confirmController = TextEditingController();
+
+  bool isRegister = false;
+  bool loading = false;
+  bool obscurePassword = true;
+
+  void showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  String authError(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'invalid-email':
+        return 'آدرس ایمیل معتبر نیست.';
+      case 'user-not-found':
+        return 'حساب کاربری با این ایمیل پیدا نشد.';
+      case 'wrong-password':
+      case 'invalid-credential':
+        return 'ایمیل یا رمز عبور اشتباه است.';
+      case 'email-already-in-use':
+        return 'این ایمیل قبلاً ثبت نام شده است.';
+      case 'weak-password':
+        return 'رمز عبور باید حداقل ۶ کاراکتر باشد.';
+      case 'too-many-requests':
+        return 'تعداد تلاش‌ها زیاد است. کمی بعد دوباره امتحان کنید.';
+      case 'network-request-failed':
+        return 'اتصال اینترنت را بررسی کنید.';
+      default:
+        return 'خطا در ورود یا ثبت نام: ${e.message ?? e.code}';
+    }
+  }
+
+  Future<void> submit() async {
+    final email = emailController.text.trim();
+    final password = passwordController.text;
+
+    if (email.isEmpty || password.isEmpty) {
+      showMessage('لطفاً ایمیل و رمز عبور را وارد کنید.');
+      return;
+    }
+
+    if (isRegister && password != confirmController.text) {
+      showMessage('تکرار رمز عبور با رمز اصلی یکسان نیست.');
+      return;
+    }
+
+    if (password.length < 6) {
+      showMessage('رمز عبور باید حداقل ۶ کاراکتر باشد.');
+      return;
+    }
+
+    setState(() => loading = true);
+
+    try {
+      if (isRegister) {
+        await FirebaseAuth.instance.createUserWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
+      } else {
+        await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
+      }
+    } on FirebaseAuthException catch (e) {
+      if (mounted) showMessage(authError(e));
+    } catch (e) {
+      if (mounted) showMessage('خطای غیرمنتظره رخ داد.');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> resetPassword() async {
+    final email = emailController.text.trim();
+
+    if (email.isEmpty) {
+      showMessage('ابتدا ایمیل خود را وارد کنید.');
+      return;
+    }
+
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      if (mounted) {
+        showMessage('لینک بازیابی رمز عبور به ایمیل شما ارسال شد.');
+      }
+    } on FirebaseAuthException catch (e) {
+      if (mounted) showMessage(authError(e));
+    }
+  }
+
+  @override
+  void dispose() {
+    emailController.dispose();
+    passwordController.dispose();
+    confirmController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FA),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Card(
+              elevation: 2,
+              child: Padding(
+                padding: const EdgeInsets.all(22),
+                child: Column(
+                  children: [
+                    Image.asset(
+                      'assets/logo.png',
+                      height: 75,
+                      errorBuilder: (_, __, ___) => const Icon(
+                        Icons.bed,
+                        size: 65,
+                        color: Color(0xFF12345A),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'فروشگاه تشک فیدل',
+                      style: TextStyle(
+                        fontSize: 23,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF12345A),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      isRegister ? 'ساخت حساب کاربری' : 'ورود به حساب کاربری',
+                      style: const TextStyle(fontSize: 17),
+                    ),
+                    const SizedBox(height: 25),
+                    TextField(
+                      controller: emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: const InputDecoration(
+                        labelText: 'ایمیل',
+                        prefixIcon: Icon(Icons.email_outlined),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: passwordController,
+                      obscureText: obscurePassword,
+                      decoration: InputDecoration(
+                        labelText: 'رمز عبور',
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          onPressed: () {
+                            setState(() {
+                              obscurePassword = !obscurePassword;
+                            });
+                          },
+                          icon: Icon(
+                            obscurePassword
+                                ? Icons.visibility
+                                : Icons.visibility_off,
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (isRegister) ...[
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: confirmController,
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                          labelText: 'تکرار رمز عبور',
+                          prefixIcon: Icon(Icons.lock_outline),
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: FilledButton(
+                        onPressed: loading ? null : submit,
+                        child: loading
+                            ? const CircularProgressIndicator(
+                                color: Colors.white,
+                              )
+                            : Text(
+                                isRegister ? 'ثبت نام' : 'ورود',
+                                style: const TextStyle(fontSize: 17),
+                              ),
+                      ),
+                    ),
+                    if (!isRegister) ...[
+                      TextButton(
+                        onPressed: resetPassword,
+                        child: const Text('فراموشی رمز عبور'),
+                      ),
+                    ],
+                    const Divider(height: 28),
+                    TextButton(
+                      onPressed: loading
+                          ? null
+                          : () {
+                              setState(() {
+                                isRegister = !isRegister;
+                              });
+                            },
+                      child: Text(
+                        isRegister
+                            ? 'قبلاً حساب ساخته‌اید؟ ورود'
+                            : 'حساب ندارید؟ ثبت نام کنید',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'کیفیت رمز ماندگاریست',
+                      style: TextStyle(
+                        color: Color(0xFF12345A),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -95,6 +373,13 @@ class _HomePageState extends State<HomePage> {
   String tier = 'ECONOMY';
   int size = 160;
 
+  bool get isAdmin =>
+      FirebaseAuth.instance.currentUser?.uid == adminUid;
+
+  Future<void> signOut() async {
+    await FirebaseAuth.instance.signOut();
+  }
+
   void showInfo() {
     showDialog(
       context: context,
@@ -146,9 +431,35 @@ class _HomePageState extends State<HomePage> {
             onPressed: showInfo,
             icon: const Icon(Icons.info_outline),
           ),
+          IconButton(
+            onPressed: signOut,
+            tooltip: 'خروج از حساب',
+            icon: const Icon(Icons.logout),
+          ),
         ],
       ),
-      body: pages[tab],
+      body: Column(
+        children: [
+          if (isAdmin)
+            Container(
+              width: double.infinity,
+              color: const Color(0xFFE8EEF5),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 7,
+              ),
+              child: const Text(
+                'حساب مدیر فیدل',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Color(0xFF12345A),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          Expanded(child: pages[tab]),
+        ],
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
         onDestinationSelected: (v) => setState(() => tab = v),
