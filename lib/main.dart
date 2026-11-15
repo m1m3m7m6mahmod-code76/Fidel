@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 const String adminUid = 'mbYMqJC4fHUgf1Mf3IhzyEeOa982';
 
@@ -34,7 +35,8 @@ class FidelApp extends StatelessWidget {
   }
 }
 
-// تشخیص ورود کاربر
+// ---------------- ورود و ثبت نام ----------------
+
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
@@ -49,17 +51,13 @@ class AuthGate extends StatelessWidget {
           );
         }
 
-        if (snapshot.hasData) {
-          return const HomePage();
-        }
-
+        if (snapshot.hasData) return const HomePage();
         return const AuthPage();
       },
     );
   }
 }
 
-// صفحه ورود و ثبت نام
 class AuthPage extends StatefulWidget {
   const AuthPage({super.key});
 
@@ -100,7 +98,7 @@ class _AuthPageState extends State<AuthPage> {
       case 'network-request-failed':
         return 'اتصال اینترنت را بررسی کنید.';
       default:
-        return 'خطا در ورود یا ثبت نام: ${e.message ?? e.code}';
+        return 'خطا: ${e.message ?? e.code}';
     }
   }
 
@@ -139,7 +137,7 @@ class _AuthPageState extends State<AuthPage> {
       }
     } on FirebaseAuthException catch (e) {
       if (mounted) showMessage(authError(e));
-    } catch (e) {
+    } catch (_) {
       if (mounted) showMessage('خطای غیرمنتظره رخ داد.');
     } finally {
       if (mounted) setState(() => loading = false);
@@ -181,7 +179,6 @@ class _AuthPageState extends State<AuthPage> {
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24),
             child: Card(
-              elevation: 2,
               child: Padding(
                 padding: const EdgeInsets.all(22),
                 child: Column(
@@ -263,18 +260,14 @@ class _AuthPageState extends State<AuthPage> {
                             ? const CircularProgressIndicator(
                                 color: Colors.white,
                               )
-                            : Text(
-                                isRegister ? 'ثبت نام' : 'ورود',
-                                style: const TextStyle(fontSize: 17),
-                              ),
+                            : Text(isRegister ? 'ثبت نام' : 'ورود'),
                       ),
                     ),
-                    if (!isRegister) ...[
+                    if (!isRegister)
                       TextButton(
                         onPressed: resetPassword,
                         child: const Text('فراموشی رمز عبور'),
                       ),
-                    ],
                     const Divider(height: 28),
                     TextButton(
                       onPressed: loading
@@ -308,6 +301,8 @@ class _AuthPageState extends State<AuthPage> {
     );
   }
 }
+
+// ---------------- اطلاعات مدل‌های تشک برای مشاور ----------------
 
 class Mattress {
   final String name;
@@ -360,6 +355,89 @@ const mattresses = <Mattress>[
       {90:58.48,120:71.74,140:87,160:94,180:110.7},
       {90:91.7,120:114,140:133,160:154.7,180:174}),
 ];
+
+// ---------------- ابزار خواندن اطلاعات Firebase ----------------
+
+String readText(dynamic value, [String fallback = '']) {
+  if (value == null) return fallback;
+  if (value is String) return value;
+  return value.toString();
+}
+
+String normalizeCategory(dynamic value, String documentId) {
+  final category = readText(value).toLowerCase();
+  final id = documentId.toLowerCase();
+
+  if (category.contains('plus') ||
+      category.contains('پلاس') ||
+      id.endsWith('_plus')) {
+    return 'PLUS';
+  }
+
+  if (category.contains('economy') ||
+      category.contains('اکونومی') ||
+      id.endsWith('_economy')) {
+    return 'ECONOMY';
+  }
+
+  return '';
+}
+
+dynamic findPrice(Map<String, dynamic> data, int size) {
+  final priceValue = data['price'];
+
+  // حالت اول: price به صورت نقشه‌ای از سایزها
+  if (priceValue is Map) {
+    final value = priceValue[size.toString()] ??
+        priceValue['$size'] ??
+        priceValue['${size}cm'];
+    if (value != null) return value;
+  }
+
+  // حالت دوم: قیمت به صورت فیلدهای جداگانه
+  final possibleKeys = [
+    'price_$size',
+    'price$size',
+    '${size}_price',
+    '${size}cm',
+    '$size',
+  ];
+
+  for (final key in possibleKeys) {
+    if (data[key] != null) return data[key];
+  }
+
+  // حالت سوم: قیمت عددی ثابت برای سند
+  if (priceValue is num || priceValue is String) {
+    return priceValue;
+  }
+
+  return null;
+}
+
+String formatPrice(dynamic value) {
+  if (value == null) return 'استعلام';
+
+  if (value is num) {
+    return value.toString();
+  }
+
+  return value.toString();
+}
+
+String productName(
+  Map<String, dynamic> data,
+  String documentId,
+) {
+  final name = readText(data['name']).trim();
+  if (name.isNotEmpty) return name;
+
+  return documentId
+      .replaceAll('_plus', '')
+      .replaceAll('_economy', '');
+}
+
+// ---------------- صفحه اصلی ----------------
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -417,6 +495,8 @@ class _HomePageState extends State<HomePage> {
               'assets/logo.png',
               height: 38,
               fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) =>
+                  const Icon(Icons.bed, size: 32),
             ),
             const SizedBox(width: 8),
             const Text(
@@ -481,6 +561,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  // کاتالوگ متصل به Firestore
   Widget catalog() {
     return Column(
       children: [
@@ -563,39 +644,100 @@ class _HomePageState extends State<HomePage> {
         ),
         const SizedBox(height: 8),
         Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.all(12),
-            itemCount: mattresses.length,
-            itemBuilder: (context, index) {
-              final m = mattresses[index];
-              final p = m.price(tier, size);
+          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: FirebaseFirestore.instance
+                .collection('products')
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(
+                  child: CircularProgressIndicator(),
+                );
+              }
 
-              return Card(
-                margin: const EdgeInsets.only(bottom: 10),
-                child: ListTile(
-                  leading: const CircleAvatar(
-                    backgroundColor: Color(0xFFE8EEF5),
-                    child: Icon(
-                      Icons.bed,
-                      color: Color(0xFF12345A),
+              if (snapshot.hasError) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Text(
+                      'دریافت محصولات با خطا روبه‌رو شد.\n'
+                      '${snapshot.error}',
+                      textAlign: TextAlign.center,
                     ),
                   ),
-                  title: Text(
-                    m.name,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                );
+              }
+
+              final docs = snapshot.data?.docs ?? [];
+
+              final filtered = docs.where((doc) {
+                final data = doc.data();
+                return normalizeCategory(
+                      data['category'],
+                      doc.id,
+                    ) ==
+                    tier;
+              }).toList();
+
+              if (filtered.isEmpty) {
+                return const Center(
+                  child: Text(
+                    'محصولی در این گروه پیدا نشد.',
+                    style: TextStyle(fontSize: 16),
                   ),
-                  subtitle: Text(
-                    '${m.type}\nضمانت: ${m.warranty}',
-                  ),
-                  isThreeLine: true,
-                  trailing: Text(
-                    p == null ? 'استعلام' : '${p} میلیون',
-                    style: const TextStyle(
-                      color: Color(0xFF12345A),
-                      fontWeight: FontWeight.bold,
+                );
+              }
+
+              return ListView.builder(
+                padding: const EdgeInsets.all(12),
+                itemCount: filtered.length,
+                itemBuilder: (context, index) {
+                  final doc = filtered[index];
+                  final data = doc.data();
+
+                  final name = productName(data, doc.id);
+                  final warranty = readText(
+                    data['warranty'],
+                    'ثبت نشده',
+                  );
+                  final type = readText(
+                    data['type'],
+                    readText(data['features'], 'تشک فیدل'),
+                  );
+                  final price = findPrice(data, size);
+
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    child: ListTile(
+                      leading: const CircleAvatar(
+                        backgroundColor: Color(0xFFE8EEF5),
+                        child: Icon(
+                          Icons.bed,
+                          color: Color(0xFF12345A),
+                        ),
+                      ),
+                      title: Text(
+                        name,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      subtitle: Text(
+                        '$type\nضمانت: $warranty',
+                      ),
+                      isThreeLine: true,
+                      trailing: Text(
+                        price == null
+                            ? 'استعلام'
+                            : '${formatPrice(price)} میلیون',
+                        style: const TextStyle(
+                          color: Color(0xFF12345A),
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
               );
             },
           ),
@@ -604,6 +746,8 @@ class _HomePageState extends State<HomePage> {
     );
   }
 }
+
+// ---------------- مشاور هوشمند ----------------
 
 class AssistantPage extends StatefulWidget {
   const AssistantPage({super.key});
@@ -635,8 +779,10 @@ class _AssistantPageState extends State<AssistantPage> {
       if (step == 0) {
         answers.add(s);
 
-        if (s.contains('۹۰') || s.contains('90') ||
-            s.contains('یک نفر') || s.contains('یک‌نفر')) {
+        if (s.contains('۹۰') ||
+            s.contains('90') ||
+            s.contains('یک نفر') ||
+            s.contains('یک‌نفر')) {
           size = 90;
         } else if (s.contains('۱۲۰') || s.contains('120')) {
           size = 120;
@@ -650,14 +796,14 @@ class _AssistantPageState extends State<AssistantPage> {
 
         messages.add(
           'سؤال دوم: معمولاً به چه حالتی می‌خوابید؟ '
-          'به پهلو، به پشت یا روی شکم؟'
+          'به پهلو، به پشت یا روی شکم؟',
         );
         step++;
       } else if (step == 1) {
         answers.add(s);
         messages.add(
           'سؤال سوم: تشک را سفت، متوسط یا نرم می‌پسندید؟ '
-          'آیا کمردرد یا ناراحتی خاصی دارید؟'
+          'آیا کمردرد یا ناراحتی خاصی دارید؟',
         );
         step++;
       } else if (step == 2) {
@@ -666,7 +812,7 @@ class _AssistantPageState extends State<AssistantPage> {
         recommend();
       } else {
         messages.add(
-          'برای دریافت پیشنهاد جدید، لطفاً برنامه را دوباره باز کنید.'
+          'برای دریافت پیشنهاد جدید، لطفاً برنامه را دوباره باز کنید.',
         );
       }
     });
@@ -704,7 +850,7 @@ class _AssistantPageState extends State<AssistantPage> {
       'ممنون از پاسخ‌هایتان 🌹\n\n'
       'حالت خواب شما: $position\n'
       'ابعاد انتخاب‌شده: ${size}×200\n\n'
-      'با توجه به پاسخ‌ها، این مدل‌ها برای بررسی بیشتر پیشنهاد می‌شوند:\n\n'
+      'با توجه به پاسخ‌ها، این مدل‌ها برای بررسی بیشتر پیشنهاد می‌شوند:\n\n',
     );
 
     for (final m in candidates.take(3)) {
@@ -716,14 +862,14 @@ class _AssistantPageState extends State<AssistantPage> {
         'نوع ساخت: ${m.type}\n'
         'ضمانت: ${m.warranty}\n'
         'قیمت اکونومی: ${economyPrice ?? 'استعلام'} میلیون تومان\n'
-        'قیمت پلاس: ${plusPrice ?? 'استعلام'} میلیون تومان\n'
+        'قیمت پلاس: ${plusPrice ?? 'استعلام'} میلیون تومان\n',
       );
     }
 
     result.writeln(
       'این پیشنهاد صرفاً راهنمای اولیه برای انتخاب تشک است '
       'و تشخیص پزشکی محسوب نمی‌شود. بهتر است قبل از خرید، '
-      'راحتی تشک را حضوری امتحان کنید.'
+      'راحتی تشک را حضوری امتحان کنید.',
     );
 
     messages.add(result.toString());
@@ -799,6 +945,8 @@ class _AssistantPageState extends State<AssistantPage> {
     );
   }
 }
+
+// ---------------- سفارش‌ها ----------------
 
 class OrdersPage extends StatelessWidget {
   const OrdersPage({super.key});
