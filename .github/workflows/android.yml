@@ -127,6 +127,11 @@ jobs:
           print("Firebase configuration completed successfully.")
           PY
 
+      - name: Get SHA Fingerprints
+        run: |
+          cd android
+          ./gradlew signingReport
+
       - name: Get Dependencies
         run: flutter pub get
 
