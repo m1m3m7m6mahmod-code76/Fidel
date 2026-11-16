@@ -6,6 +6,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 const String adminUid = 'mbYMqJC4fHUgf1Mf3IhzyEeOa982';
 
+const Color fidelBlue = Color(0xFF12345A);
+final db = FirebaseFirestore.instance;
+final auth = FirebaseAuth.instance;
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
@@ -21,9 +25,7 @@ class FidelApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'فیدل | فروشگاه تشک',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF12345A),
-        ),
+        colorScheme: ColorScheme.fromSeed(seedColor: fidelBlue),
         useMaterial3: true,
         fontFamily: 'Roboto',
       ),
@@ -35,7 +37,9 @@ class FidelApp extends StatelessWidget {
   }
 }
 
-// ---------------- ورود و ثبت نام ----------------
+// =====================================================
+// ورود و ثبت نام
+// =====================================================
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
@@ -43,7 +47,7 @@ class AuthGate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(),
+      stream: auth.authStateChanges(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
@@ -68,77 +72,190 @@ class AuthPage extends StatefulWidget {
 class _AuthPageState extends State<AuthPage> {
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
-  final confirmController = TextEditingController();
+  final phoneController = TextEditingController();
+  final codeController = TextEditingController();
 
-  bool isRegister = false;
+  bool customerMode = true;
   bool loading = false;
   bool obscurePassword = true;
+  bool codeSent = false;
 
-  void showMessage(String message) {
+  String verificationId = '';
+  int? resendToken;
+
+  void message(String value) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
+      SnackBar(content: Text(value)),
     );
+  }
+
+  String normalizePhone(String input) {
+    String phone = input.trim();
+
+    const persian = '۰۱۲۳۴۵۶۷۸۹';
+    const arabic = '٠١٢٣٤٥٦٧٨٩';
+
+    for (int i = 0; i < 10; i++) {
+      phone = phone.replaceAll(persian[i], '$i');
+      phone = phone.replaceAll(arabic[i], '$i');
+    }
+
+    phone = phone.replaceAll(' ', '').replaceAll('-', '');
+
+    if (phone.startsWith('09') && phone.length == 11) {
+      return '+98${phone.substring(1)}';
+    }
+
+    if (phone.startsWith('9') && phone.length == 10) {
+      return '+98$phone';
+    }
+
+    if (phone.startsWith('0098')) {
+      return '+${phone.substring(2)}';
+    }
+
+    return phone;
   }
 
   String authError(FirebaseAuthException e) {
     switch (e.code) {
       case 'invalid-email':
-        return 'آدرس ایمیل معتبر نیست.';
+        return 'ایمیل معتبر نیست.';
       case 'user-not-found':
-        return 'حساب کاربری با این ایمیل پیدا نشد.';
+        return 'حساب کاربری پیدا نشد.';
       case 'wrong-password':
       case 'invalid-credential':
-        return 'ایمیل یا رمز عبور اشتباه است.';
-      case 'email-already-in-use':
-        return 'این ایمیل قبلاً ثبت نام شده است.';
-      case 'weak-password':
-        return 'رمز عبور باید حداقل ۶ کاراکتر باشد.';
+        return 'اطلاعات ورود اشتباه است.';
       case 'too-many-requests':
-        return 'تعداد تلاش‌ها زیاد است. کمی بعد دوباره امتحان کنید.';
+        return 'تعداد تلاش‌ها زیاد است. کمی بعد امتحان کنید.';
       case 'network-request-failed':
         return 'اتصال اینترنت را بررسی کنید.';
+      case 'invalid-phone-number':
+        return 'شماره موبایل معتبر نیست.';
+      case 'invalid-verification-code':
+        return 'کد پیامکی اشتباه است.';
+      case 'session-expired':
+        return 'کد پیامکی منقضی شده است.';
+      case 'quota-exceeded':
+        return 'سهمیه ارسال پیامک تمام شده است.';
+      case 'operation-not-allowed':
+        return 'ورود پیامکی در فایربیس فعال نیست.';
       default:
         return 'خطا: ${e.message ?? e.code}';
     }
   }
 
-  Future<void> submit() async {
+  Future<void> adminLogin() async {
     final email = emailController.text.trim();
     final password = passwordController.text;
 
     if (email.isEmpty || password.isEmpty) {
-      showMessage('لطفاً ایمیل و رمز عبور را وارد کنید.');
-      return;
-    }
-
-    if (isRegister && password != confirmController.text) {
-      showMessage('تکرار رمز عبور با رمز اصلی یکسان نیست.');
-      return;
-    }
-
-    if (password.length < 6) {
-      showMessage('رمز عبور باید حداقل ۶ کاراکتر باشد.');
+      message('ایمیل و رمز عبور را وارد کنید.');
       return;
     }
 
     setState(() => loading = true);
 
     try {
-      if (isRegister) {
-        await FirebaseAuth.instance.createUserWithEmailAndPassword(
-          email: email,
-          password: password,
-        );
-      } else {
-        await FirebaseAuth.instance.signInWithEmailAndPassword(
-          email: email,
-          password: password,
-        );
+      final result = await auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      if (result.user?.uid != adminUid) {
+        await auth.signOut();
+        message('این بخش فقط مخصوص مدیر فیدل است.');
       }
     } on FirebaseAuthException catch (e) {
-      if (mounted) showMessage(authError(e));
+      message(authError(e));
     } catch (_) {
-      if (mounted) showMessage('خطای غیرمنتظره رخ داد.');
+      message('خطای غیرمنتظره رخ داد.');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> sendSms() async {
+    final phone = normalizePhone(phoneController.text);
+
+    if (!phone.startsWith('+') || phone.length < 10) {
+      message('شماره موبایل را صحیح وارد کنید.');
+      return;
+    }
+
+    setState(() {
+      loading = true;
+      codeSent = false;
+    });
+
+    try {
+      await auth.verifyPhoneNumber(
+        phoneNumber: phone,
+        timeout: const Duration(seconds: 60),
+        forceResendingToken: resendToken,
+
+        verificationCompleted: (PhoneAuthCredential credential) async {
+          try {
+            await auth.signInWithCredential(credential);
+          } on FirebaseAuthException catch (e) {
+            message(authError(e));
+          } finally {
+            if (mounted) setState(() => loading = false);
+          }
+        },
+
+        verificationFailed: (FirebaseAuthException e) {
+          if (!mounted) return;
+          setState(() => loading = false);
+          message(authError(e));
+        },
+
+        codeSent: (String id, int? token) {
+          if (!mounted) return;
+          setState(() {
+            verificationId = id;
+            resendToken = token;
+            codeSent = true;
+            loading = false;
+          });
+          message('کد تأیید ارسال شد.');
+        },
+
+        codeAutoRetrievalTimeout: (String id) {
+          verificationId = id;
+        },
+      );
+    } on FirebaseAuthException catch (e) {
+      message(authError(e));
+      if (mounted) setState(() => loading = false);
+    } catch (_) {
+      message('ارسال پیامک با خطا روبه‌رو شد.');
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> verifySmsCode() async {
+    final code = codeController.text.trim();
+
+    if (code.length != 6) {
+      message('کد شش رقمی را وارد کنید.');
+      return;
+    }
+
+    setState(() => loading = true);
+
+    try {
+      final credential = PhoneAuthProvider.credential(
+        verificationId: verificationId,
+        smsCode: code,
+      );
+
+      await auth.signInWithCredential(credential);
+    } on FirebaseAuthException catch (e) {
+      message(authError(e));
+    } catch (_) {
+      message('بررسی کد با خطا روبه‌رو شد.');
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -148,17 +265,15 @@ class _AuthPageState extends State<AuthPage> {
     final email = emailController.text.trim();
 
     if (email.isEmpty) {
-      showMessage('ابتدا ایمیل خود را وارد کنید.');
+      message('ابتدا ایمیل مدیر را وارد کنید.');
       return;
     }
 
     try {
-      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-      if (mounted) {
-        showMessage('لینک بازیابی رمز عبور به ایمیل شما ارسال شد.');
-      }
+      await auth.sendPasswordResetEmail(email: email);
+      message('لینک بازیابی رمز به ایمیل ارسال شد.');
     } on FirebaseAuthException catch (e) {
-      if (mounted) showMessage(authError(e));
+      message(authError(e));
     }
   }
 
@@ -166,7 +281,8 @@ class _AuthPageState extends State<AuthPage> {
   void dispose() {
     emailController.dispose();
     passwordController.dispose();
-    confirmController.dispose();
+    phoneController.dispose();
+    codeController.dispose();
     super.dispose();
   }
 
@@ -189,7 +305,7 @@ class _AuthPageState extends State<AuthPage> {
                       errorBuilder: (_, __, ___) => const Icon(
                         Icons.bed,
                         size: 65,
-                        color: Color(0xFF12345A),
+                        color: fidelBlue,
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -198,96 +314,151 @@ class _AuthPageState extends State<AuthPage> {
                       style: TextStyle(
                         fontSize: 23,
                         fontWeight: FontWeight.bold,
-                        color: Color(0xFF12345A),
+                        color: fidelBlue,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      isRegister ? 'ساخت حساب کاربری' : 'ورود به حساب کاربری',
-                      style: const TextStyle(fontSize: 17),
-                    ),
-                    const SizedBox(height: 25),
-                    TextField(
-                      controller: emailController,
-                      keyboardType: TextInputType.emailAddress,
-                      decoration: const InputDecoration(
-                        labelText: 'ایمیل',
-                        prefixIcon: Icon(Icons.email_outlined),
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    TextField(
-                      controller: passwordController,
-                      obscureText: obscurePassword,
-                      decoration: InputDecoration(
-                        labelText: 'رمز عبور',
-                        prefixIcon: const Icon(Icons.lock_outline),
-                        border: const OutlineInputBorder(),
-                        suffixIcon: IconButton(
-                          onPressed: () {
-                            setState(() {
-                              obscurePassword = !obscurePassword;
-                            });
-                          },
-                          icon: Icon(
-                            obscurePassword
-                                ? Icons.visibility
-                                : Icons.visibility_off,
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: loading
+                                ? null
+                                : () => setState(() {
+                                      customerMode = true;
+                                      codeSent = false;
+                                    }),
+                            child: const Text('ورود مشتری'),
                           ),
                         ),
-                      ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: loading
+                                ? null
+                                : () => setState(() {
+                                      customerMode = false;
+                                    }),
+                            child: const Text('ورود مدیر'),
+                          ),
+                        ),
+                      ],
                     ),
-                    if (isRegister) ...[
+                    const SizedBox(height: 22),
+
+                    if (customerMode) ...[
+                      const Text(
+                        'ورود با شماره موبایل',
+                        style: TextStyle(fontSize: 18),
+                      ),
                       const SizedBox(height: 14),
                       TextField(
-                        controller: confirmController,
-                        obscureText: true,
+                        controller: phoneController,
+                        keyboardType: TextInputType.phone,
                         decoration: const InputDecoration(
-                          labelText: 'تکرار رمز عبور',
-                          prefixIcon: Icon(Icons.lock_outline),
+                          labelText: 'شماره موبایل',
+                          hintText: '09123456789',
+                          prefixIcon: Icon(Icons.phone_android),
                           border: OutlineInputBorder(),
                         ),
                       ),
-                    ],
-                    const SizedBox(height: 20),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: FilledButton(
-                        onPressed: loading ? null : submit,
-                        child: loading
-                            ? const CircularProgressIndicator(
-                                color: Colors.white,
-                              )
-                            : Text(isRegister ? 'ثبت نام' : 'ورود'),
+                      if (codeSent) ...[
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: codeController,
+                          keyboardType: TextInputType.number,
+                          maxLength: 6,
+                          decoration: const InputDecoration(
+                            labelText: 'کد پیامکی',
+                            prefixIcon: Icon(Icons.sms_outlined),
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: FilledButton(
+                          onPressed: loading
+                              ? null
+                              : codeSent
+                                  ? verifySmsCode
+                                  : sendSms,
+                          child: loading
+                              ? const CircularProgressIndicator(
+                                  color: Colors.white,
+                                )
+                              : Text(
+                                  codeSent
+                                      ? 'تأیید کد و ورود'
+                                      : 'ارسال کد پیامکی',
+                                ),
+                        ),
                       ),
-                    ),
-                    if (!isRegister)
+                      if (codeSent)
+                        TextButton(
+                          onPressed: loading ? null : sendSms,
+                          child: const Text('ارسال دوباره کد'),
+                        ),
+                    ] else ...[
+                      const Text(
+                        'ورود مدیر فیدل',
+                        style: TextStyle(fontSize: 18),
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: emailController,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: const InputDecoration(
+                          labelText: 'ایمیل مدیر',
+                          prefixIcon: Icon(Icons.email_outlined),
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: passwordController,
+                        obscureText: obscurePassword,
+                        decoration: InputDecoration(
+                          labelText: 'رمز عبور',
+                          prefixIcon: const Icon(Icons.lock_outline),
+                          border: const OutlineInputBorder(),
+                          suffixIcon: IconButton(
+                            onPressed: () => setState(
+                              () => obscurePassword = !obscurePassword,
+                            ),
+                            icon: Icon(
+                              obscurePassword
+                                  ? Icons.visibility
+                                  : Icons.visibility_off,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: FilledButton(
+                          onPressed: loading ? null : adminLogin,
+                          child: loading
+                              ? const CircularProgressIndicator(
+                                  color: Colors.white,
+                                )
+                              : const Text('ورود مدیر'),
+                        ),
+                      ),
                       TextButton(
-                        onPressed: resetPassword,
+                        onPressed: loading ? null : resetPassword,
                         child: const Text('فراموشی رمز عبور'),
                       ),
+                    ],
                     const Divider(height: 28),
-                    TextButton(
-                      onPressed: loading
-                          ? null
-                          : () {
-                              setState(() {
-                                isRegister = !isRegister;
-                              });
-                            },
-                      child: Text(
-                        isRegister
-                            ? 'قبلاً حساب ساخته‌اید؟ ورود'
-                            : 'حساب ندارید؟ ثبت نام کنید',
-                      ),
-                    ),
-                    const SizedBox(height: 8),
                     const Text(
                       'کیفیت رمز ماندگاریست',
                       style: TextStyle(
-                        color: Color(0xFF12345A),
+                        color: fidelBlue,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -302,7 +473,9 @@ class _AuthPageState extends State<AuthPage> {
   }
 }
 
-// ---------------- اطلاعات مدل‌های تشک برای مشاور ----------------
+// =====================================================
+// اطلاعات مشاور
+// =====================================================
 
 class Mattress {
   final String name;
@@ -356,11 +529,12 @@ const mattresses = <Mattress>[
       {90:91.7,120:114,140:133,160:154.7,180:174}),
 ];
 
-// ---------------- ابزار خواندن اطلاعات Firebase ----------------
+// =====================================================
+// ابزار محصولات
+// =====================================================
 
 String readText(dynamic value, [String fallback = '']) {
   if (value == null) return fallback;
-  if (value is String) return value;
   return value.toString();
 }
 
@@ -386,15 +560,15 @@ String normalizeCategory(dynamic value, String documentId) {
 dynamic findPrice(Map<String, dynamic> data, int size) {
   final priceValue = data['price'];
 
-  // حالت اول: price به صورت نقشه‌ای از سایزها
   if (priceValue is Map) {
     final value = priceValue[size.toString()] ??
-        priceValue['$size'] ??
-        priceValue['${size}cm'];
+        priceValue['${size}cm'] ??
+        priceValue['${size}x200'] ??
+        priceValue['${size}×200'];
+
     if (value != null) return value;
   }
 
-  // حالت دوم: قیمت به صورت فیلدهای جداگانه
   final possibleKeys = [
     'price_$size',
     'price$size',
@@ -407,7 +581,6 @@ dynamic findPrice(Map<String, dynamic> data, int size) {
     if (data[key] != null) return data[key];
   }
 
-  // حالت سوم: قیمت عددی ثابت برای سند
   if (priceValue is num || priceValue is String) {
     return priceValue;
   }
@@ -415,20 +588,7 @@ dynamic findPrice(Map<String, dynamic> data, int size) {
   return null;
 }
 
-String formatPrice(dynamic value) {
-  if (value == null) return 'استعلام';
-
-  if (value is num) {
-    return value.toString();
-  }
-
-  return value.toString();
-}
-
-String productName(
-  Map<String, dynamic> data,
-  String documentId,
-) {
+String productName(Map<String, dynamic> data, String documentId) {
   final name = readText(data['name']).trim();
   if (name.isNotEmpty) return name;
 
@@ -437,7 +597,55 @@ String productName(
       .replaceAll('_economy', '');
 }
 
-// ---------------- صفحه اصلی ----------------
+String sizeLabel(int size) {
+  return size == 70 ? '۷۰×۱۳۰' : '$size×۲۰۰';
+}
+
+// =====================================================
+// اطلاعات شعب و کارخانه
+// =====================================================
+
+final List<Map<String, dynamic>> defaultBranches = [
+  {
+    'id': 'branch1',
+    'name': 'شعبه اول فیدل',
+    'address':
+        'تهران، شهرک صنعتی چهاردانگه، خیابان ۲۴، بلوار صنایع شمالی، پلاک ۲۳، تشک فیدل',
+    'phones': [
+      '09331109969',
+      '55264000',
+      '55261436',
+      '55261437',
+    ],
+    'active': true,
+  },
+  {
+    'id': 'branch2',
+    'name': 'شعبه دوم فیدل',
+    'address':
+        'تهران، شهرک صنعتی چهاردانگه، خیابان رحیمی (خیابان اصلی شهرک)، بین خیابان اول و دوم، آلومینیوم‌کاران، پلاک ۷، تشک فیدل',
+    'phones': [
+      '09054206338',
+      '55282990',
+      '55282991',
+    ],
+    'active': true,
+  },
+  {
+    'id': 'factory',
+    'name': 'کارخانه فیدل',
+    'address':
+        'تهران، کمربندی دوم تهران، واوان به سمت کهریزک، بعد از میدان عشقی، پلاک ۷، تشک فیدل',
+    'phones': [
+      '55277905',
+    ],
+    'active': true,
+  },
+];
+
+// =====================================================
+// صفحه اصلی
+// =====================================================
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -448,14 +656,11 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int tab = 0;
-  String tier = 'ECONOMY';
-  int size = 160;
 
-  bool get isAdmin =>
-      FirebaseAuth.instance.currentUser?.uid == adminUid;
+  bool get isAdmin => auth.currentUser?.uid == adminUid;
 
   Future<void> signOut() async {
-    await FirebaseAuth.instance.signOut();
+    await auth.signOut();
   }
 
   void showInfo() {
@@ -481,9 +686,10 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final pages = [
-      catalog(),
+      const CatalogPage(),
       const AssistantPage(),
       const OrdersPage(),
+      BranchesPage(isAdmin: isAdmin),
     ];
 
     return Scaffold(
@@ -494,7 +700,6 @@ class _HomePageState extends State<HomePage> {
             Image.asset(
               'assets/logo.png',
               height: 38,
-              fit: BoxFit.contain,
               errorBuilder: (_, __, ___) =>
                   const Icon(Icons.bed, size: 32),
             ),
@@ -513,7 +718,7 @@ class _HomePageState extends State<HomePage> {
           ),
           IconButton(
             onPressed: signOut,
-            tooltip: 'خروج از حساب',
+            tooltip: 'خروج',
             icon: const Icon(Icons.logout),
           ),
         ],
@@ -524,15 +729,12 @@ class _HomePageState extends State<HomePage> {
             Container(
               width: double.infinity,
               color: const Color(0xFFE8EEF5),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 7,
-              ),
+              padding: const EdgeInsets.all(8),
               child: const Text(
                 'حساب مدیر فیدل',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: Color(0xFF12345A),
+                  color: fidelBlue,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -556,13 +758,33 @@ class _HomePageState extends State<HomePage> {
             icon: Icon(Icons.receipt_long_outlined),
             label: 'سفارش‌ها',
           ),
+          NavigationDestination(
+            icon: Icon(Icons.store_outlined),
+            label: 'شعب و نمایندگی',
+          ),
         ],
       ),
     );
   }
+}
 
-  // کاتالوگ متصل به Firestore
-  Widget catalog() {
+// =====================================================
+// کاتالوگ محصولات
+// =====================================================
+
+class CatalogPage extends StatefulWidget {
+  const CatalogPage({super.key});
+
+  @override
+  State<CatalogPage> createState() => _CatalogPageState();
+}
+
+class _CatalogPageState extends State<CatalogPage> {
+  String tier = 'ECONOMY';
+  int size = 160;
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       children: [
         Padding(
@@ -571,7 +793,7 @@ class _HomePageState extends State<HomePage> {
             width: double.infinity,
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              color: const Color(0xFF12345A),
+              color: fidelBlue,
               borderRadius: BorderRadius.circular(18),
             ),
             child: const Column(
@@ -625,14 +847,16 @@ class _HomePageState extends State<HomePage> {
                 child: DropdownButtonFormField<int>(
                   value: size,
                   decoration: const InputDecoration(
-                    labelText: 'عرض تشک',
+                    labelText: 'ابعاد تشک',
                     border: OutlineInputBorder(),
                   ),
-                  items: [90, 120, 140, 160, 180]
-                      .map((v) => DropdownMenuItem(
-                            value: v,
-                            child: Text('$v سانتی‌متر'),
-                          ))
+                  items: [70, 80, 90, 120, 140, 160, 180]
+                      .map(
+                        (v) => DropdownMenuItem(
+                          value: v,
+                          child: Text('${sizeLabel(v)} سانتی‌متر'),
+                        ),
+                      )
                       .toList(),
                   onChanged: (v) {
                     if (v != null) setState(() => size = v);
@@ -645,9 +869,7 @@ class _HomePageState extends State<HomePage> {
         const SizedBox(height: 8),
         Expanded(
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: FirebaseFirestore.instance
-                .collection('products')
-                .snapshots(),
+            stream: db.collection('products').snapshots(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(
@@ -672,19 +894,23 @@ class _HomePageState extends State<HomePage> {
 
               final filtered = docs.where((doc) {
                 final data = doc.data();
-                return normalizeCategory(
-                      data['category'],
-                      doc.id,
-                    ) ==
-                    tier;
+                final category =
+                    normalizeCategory(data['category'], doc.id);
+
+                if (category != tier) return false;
+
+                // سایز ۷۰ فقط برای آسوده و آسوده پلاس
+                if (size == 70) {
+                  final name = productName(data, doc.id);
+                  if (!name.contains('آسوده')) return false;
+                }
+
+                return true;
               }).toList();
 
               if (filtered.isEmpty) {
                 return const Center(
-                  child: Text(
-                    'محصولی در این گروه پیدا نشد.',
-                    style: TextStyle(fontSize: 16),
-                  ),
+                  child: Text('محصولی در این گروه پیدا نشد.'),
                 );
               }
 
@@ -696,25 +922,27 @@ class _HomePageState extends State<HomePage> {
                   final data = doc.data();
 
                   final name = productName(data, doc.id);
-                  final warranty = readText(
-                    data['warranty'],
-                    'ثبت نشده',
-                  );
+                  final warranty =
+                      readText(data['warranty'], 'ثبت نشده');
                   final type = readText(
                     data['type'],
                     readText(data['features'], 'تشک فیدل'),
                   );
                   final price = findPrice(data, size);
 
+                  final height = readText(
+                    data['height'],
+                    readText(data['thickness']),
+                  );
+
+                  final description = readText(data['description']);
+
                   return Card(
                     margin: const EdgeInsets.only(bottom: 10),
-                    child: ListTile(
+                    child: ExpansionTile(
                       leading: const CircleAvatar(
                         backgroundColor: Color(0xFFE8EEF5),
-                        child: Icon(
-                          Icons.bed,
-                          color: Color(0xFF12345A),
-                        ),
+                        child: Icon(Icons.bed, color: fidelBlue),
                       ),
                       title: Text(
                         name,
@@ -725,16 +953,36 @@ class _HomePageState extends State<HomePage> {
                       subtitle: Text(
                         '$type\nضمانت: $warranty',
                       ),
-                      isThreeLine: true,
                       trailing: Text(
                         price == null
                             ? 'استعلام'
                             : '${formatPrice(price)} میلیون',
                         style: const TextStyle(
-                          color: Color(0xFF12345A),
+                          color: fidelBlue,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('ابعاد انتخابی: ${sizeLabel(size)}'),
+                              const SizedBox(height: 6),
+                              if (height.isNotEmpty)
+                                Text('ارتفاع: $height'),
+                              if (description.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Text(description),
+                              ],
+                              const SizedBox(height: 8),
+                              Text('نوع تشک: $type'),
+                              Text('مدت ضمانت: $warranty'),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   );
                 },
@@ -747,7 +995,350 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-// ---------------- مشاور هوشمند ----------------
+String formatPrice(dynamic value) {
+  if (value == null) return 'استعلام';
+  return value.toString();
+}
+
+// =====================================================
+// مدیریت شعب و نمایندگی‌ها
+// =====================================================
+
+class BranchesPage extends StatelessWidget {
+  final bool isAdmin;
+
+  BranchesPage({super.key, required this.isAdmin});
+
+  Future<void> saveDefaultBranches(BuildContext context) async {
+    try {
+      for (final branch in defaultBranches) {
+        final id = branch['id'] as String;
+        final data = Map<String, dynamic>.from(branch);
+        data.remove('id');
+
+        await db.collection('branches').doc(id).set(
+          data,
+          SetOptions(merge: true),
+        );
+      }
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('اطلاعات اولیه شعب ذخیره شد.'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('خطا در ذخیره شعب: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> editBranch(
+    BuildContext context, {
+    String? id,
+    Map<String, dynamic>? oldData,
+  }) async {
+    final nameController = TextEditingController(
+      text: readText(oldData?['name']),
+    );
+    final addressController = TextEditingController(
+      text: readText(oldData?['address']),
+    );
+    final phonesController = TextEditingController(
+      text: (oldData?['phones'] as List? ?? []).join('\n'),
+    );
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(id == null ? 'افزودن شعبه یا نمایندگی' : 'ویرایش شعبه'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: 'نام شعبه یا نمایندگی',
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: addressController,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'آدرس',
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: phonesController,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  labelText: 'شماره تماس‌ها (هر شماره در یک خط)',
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('انصراف'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('ذخیره'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == true) {
+      final name = nameController.text.trim();
+      final address = addressController.text.trim();
+      final phones = phonesController.text
+          .split('\n')
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+
+      if (name.isEmpty || address.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('نام و آدرس را وارد کنید.'),
+          ),
+        );
+      } else {
+        try {
+          final doc = id == null
+              ? db.collection('branches').doc()
+              : db.collection('branches').doc(id);
+
+          await doc.set({
+            'name': name,
+            'address': address,
+            'phones': phones,
+            'active': oldData?['active'] ?? true,
+          }, SetOptions(merge: true));
+
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('اطلاعات ذخیره شد.')),
+            );
+          }
+        } catch (e) {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('خطا در ذخیره: $e')),
+            );
+          }
+        }
+      }
+    }
+
+    nameController.dispose();
+    addressController.dispose();
+    phonesController.dispose();
+  }
+
+  Future<void> toggleBranch(
+    BuildContext context,
+    String id,
+    bool active,
+  ) async {
+    try {
+      await db.collection('branches').doc(id).update({
+        'active': !active,
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('خطا در تغییر وضعیت: $e')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: db.collection('branches').snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(
+            child: Text('خطا در دریافت شعب: ${snapshot.error}'),
+          );
+        }
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final docs = snapshot.data?.docs ?? [];
+
+        if (docs.isEmpty) {
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              const Text(
+                'شعب و کارخانه فیدل',
+                style: TextStyle(
+                  fontSize: 21,
+                  fontWeight: FontWeight.bold,
+                  color: fidelBlue,
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'اطلاعات اولیه شعب در برنامه آماده است. '
+                'برای ذخیره و مدیریت آن‌ها در پایگاه داده، مدیر باید '
+                'دکمه زیر را بزند.',
+              ),
+              const SizedBox(height: 14),
+              if (isAdmin)
+                FilledButton.icon(
+                  onPressed: () => saveDefaultBranches(context),
+                  icon: const Icon(Icons.save),
+                  label: const Text('ثبت شعب اولیه در فایربیس'),
+                ),
+              const SizedBox(height: 16),
+              ...defaultBranches.map(
+                (branch) => Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.store, color: fidelBlue),
+                    title: Text(readText(branch['name'])),
+                    subtitle: Text(
+                      '${branch['address']}\n'
+                      '${(branch['phones'] as List).join(' - ')}',
+                    ),
+                    isThreeLine: true,
+                  ),
+                ),
+              ),
+            ],
+          );
+        }
+
+        final visibleDocs = docs.where((doc) {
+          final active = doc.data()['active'] == true;
+          return isAdmin || active;
+        }).toList();
+
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            const Text(
+              'شعب و کارخانه فیدل',
+              style: TextStyle(
+                fontSize: 21,
+                fontWeight: FontWeight.bold,
+                color: fidelBlue,
+              ),
+            ),
+            if (isAdmin) ...[
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: () => editBranch(context),
+                icon: const Icon(Icons.add),
+                label: const Text('افزودن شعبه یا نمایندگی'),
+              ),
+            ],
+            const SizedBox(height: 12),
+            if (visibleDocs.isEmpty)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(20),
+                  child: Text('در حال حاضر شعبه فعالی ثبت نشده است.'),
+                ),
+              ),
+            ...visibleDocs.map((doc) {
+              final data = doc.data();
+              final active = data['active'] == true;
+              final phones = (data['phones'] as List? ?? [])
+                  .map((e) => e.toString())
+                  .join(' - ');
+
+              return Card(
+                margin: const EdgeInsets.only(bottom: 12),
+                child: ExpansionTile(
+                  leading: Icon(
+                    Icons.store,
+                    color: active ? fidelBlue : Colors.grey,
+                  ),
+                  title: Text(
+                    readText(data['name']),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  subtitle: Text(
+                    active ? 'فعال' : 'غیرفعال',
+                    style: TextStyle(
+                      color: active ? Colors.green : Colors.red,
+                    ),
+                  ),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(readText(data['address'])),
+                          const SizedBox(height: 10),
+                          Text('شماره تماس: $phones'),
+                          if (isAdmin) ...[
+                            const Divider(),
+                            Wrap(
+                              spacing: 8,
+                              children: [
+                                TextButton.icon(
+                                  onPressed: () => editBranch(
+                                    context,
+                                    id: doc.id,
+                                    oldData: data,
+                                  ),
+                                  icon: const Icon(Icons.edit),
+                                  label: const Text('ویرایش'),
+                                ),
+                                TextButton.icon(
+                                  onPressed: () => toggleBranch(
+                                    context,
+                                    doc.id,
+                                    active,
+                                  ),
+                                  icon: Icon(
+                                    active
+                                        ? Icons.visibility_off
+                                        : Icons.visibility,
+                                  ),
+                                  label: Text(
+                                    active ? 'غیرفعال کردن' : 'فعال کردن',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ],
+        );
+      },
+    );
+  }
+}
+
+// =====================================================
+// مشاور هوشمند
+// =====================================================
 
 class AssistantPage extends StatefulWidget {
   const AssistantPage({super.key});
@@ -761,7 +1352,7 @@ class _AssistantPageState extends State<AssistantPage> {
 
   final messages = <String>[
     'سلام، به مشاور فیدل خوش آمدید 🌹\n'
-    'سؤال اول: تشک را برای یک نفر می‌خواهید یا دونفره؟ وزن تقریبی استفاده‌کنندگان چقدر است؟'
+    'برای شروع، وزن تقریبی استفاده‌کنندگان و ابعاد تشک موردنظر را بگویید.',
   ];
 
   final answers = <String>[];
@@ -769,30 +1360,16 @@ class _AssistantPageState extends State<AssistantPage> {
   int size = 160;
 
   void send() {
-    final s = controller.text.trim();
-    if (s.isEmpty) return;
+    final value = controller.text.trim();
+    if (value.isEmpty) return;
 
     setState(() {
-      messages.add('شما: $s');
+      messages.add('شما: $value');
       controller.clear();
 
       if (step == 0) {
-        answers.add(s);
-
-        if (s.contains('۹۰') ||
-            s.contains('90') ||
-            s.contains('یک نفر') ||
-            s.contains('یک‌نفر')) {
-          size = 90;
-        } else if (s.contains('۱۲۰') || s.contains('120')) {
-          size = 120;
-        } else if (s.contains('۱۴۰') || s.contains('140')) {
-          size = 140;
-        } else if (s.contains('۱۸۰') || s.contains('180')) {
-          size = 180;
-        } else if (s.contains('۱۶۰') || s.contains('160')) {
-          size = 160;
-        }
+        answers.add(value);
+        detectSize(value);
 
         messages.add(
           'سؤال دوم: معمولاً به چه حالتی می‌خوابید؟ '
@@ -800,76 +1377,157 @@ class _AssistantPageState extends State<AssistantPage> {
         );
         step++;
       } else if (step == 1) {
-        answers.add(s);
+        answers.add(value);
         messages.add(
-          'سؤال سوم: تشک را سفت، متوسط یا نرم می‌پسندید؟ '
-          'آیا کمردرد یا ناراحتی خاصی دارید؟',
+          'سؤال سوم: تشک را سفت، متوسط یا نرم می‌پسندید؟',
         );
         step++;
       } else if (step == 2) {
-        answers.add(s);
+        answers.add(value);
+        messages.add(
+          'سؤال چهارم: آیا کمردرد، دیسک کمر، سیاتیک یا مشکل پزشکی دارید؟ '
+          'اگر دارید، شدت آن را توضیح دهید.',
+        );
+        step++;
+      } else if (step == 3) {
+        answers.add(value);
         step++;
         recommend();
       } else {
         messages.add(
-          'برای دریافت پیشنهاد جدید، لطفاً برنامه را دوباره باز کنید.',
+          'برای شروع مشاوره جدید، برنامه را دوباره باز کنید.',
         );
       }
     });
   }
 
+  void detectSize(String value) {
+    if (value.contains('۷۰') || value.contains('70')) {
+      size = 70;
+    } else if (value.contains('۸۰') || value.contains('80')) {
+      size = 80;
+    } else if (value.contains('۹۰') || value.contains('90')) {
+      size = 90;
+    } else if (value.contains('۱۲۰') || value.contains('120')) {
+      size = 120;
+    } else if (value.contains('۱۴۰') || value.contains('140')) {
+      size = 140;
+    } else if (value.contains('۱۸۰') || value.contains('180')) {
+      size = 180;
+    } else if (value.contains('۱۶۰') || value.contains('160')) {
+      size = 160;
+    }
+  }
+
   void recommend() {
-    final preference = answers[2];
-    final soft = preference.contains('نرم');
-    final firm = preference.contains('سفت');
-    final pain = preference.contains('درد');
+    final weight = answers[0];
     final position = answers[1];
+    final firmness = answers[2];
+    final health = answers[3];
 
-    final candidates = mattresses.where((m) {
-      if (soft) {
-        return m.name == 'آسمان' ||
-            m.name == 'ریلکس' ||
-            m.name == 'آرامش';
+    final healthText = health.toLowerCase();
+
+    final severeDisc =
+        healthText.contains('حاد') ||
+        healthText.contains('شدید') ||
+        healthText.contains('شدت زیاد') ||
+        healthText.contains('فتق دیسک') ||
+        healthText.contains('جراحی دیسک') ||
+        healthText.contains('عمل دیسک');
+
+    final hasDisc =
+        healthText.contains('دیسک') ||
+        healthText.contains('سیاتیک') ||
+        healthText.contains('کمردرد') ||
+        healthText.contains('کمر درد');
+
+    final soft = firmness.contains('نرم');
+    final firm = firmness.contains('سفت');
+
+    final ranked = List<Mattress>.from(mattresses);
+
+    ranked.sort((a, b) {
+      int score(Mattress m) {
+        int value = 0;
+
+        if (severeDisc) {
+          if (m.name == 'مدیکال') value += 100;
+          if (m.name == 'تاپ') value += 25;
+          if (m.name == 'المپیک') value += 20;
+          if (m.name == 'کلاسیک') value += 10;
+          if (m.type.contains('پاکتی')) value -= 20;
+        } else if (hasDisc) {
+          if (m.name == 'تاپ') value += 30;
+          if (m.name == 'المپیک') value += 25;
+          if (m.name == 'مدیکال') value += 20;
+          if (m.name == 'آسمان') value -= 15;
+        }
+
+        if (firm) {
+          if (m.name == 'تاپ' || m.name == 'المپیک') {
+            value += 15;
+          }
+          if (m.name == 'آسمان') value -= 10;
+        }
+
+        if (soft) {
+          if (m.name == 'آسمان' || m.name == 'ریلکس') {
+            value += 15;
+          }
+        }
+
+        if (position.contains('پهلو') &&
+            (m.name == 'آرامش' || m.name == 'کلاسیک')) {
+          value += 5;
+        }
+
+        return value;
       }
-      if (firm) {
-        return m.name == 'المپیک' ||
-            m.name == 'تاپ' ||
-            m.name == 'آسایش';
-      }
-      if (pain) {
-        return m.name == 'تاپ' ||
-            m.name == 'المپیک' ||
-            m.name == 'کلاسیک';
-      }
-      return m.name == 'تاپ' ||
-          m.name == 'کلاسیک' ||
-          m.name == 'آرامش';
-    }).toList();
 
-    final result = StringBuffer(
-      'ممنون از پاسخ‌هایتان 🌹\n\n'
-      'حالت خواب شما: $position\n'
-      'ابعاد انتخاب‌شده: ${size}×200\n\n'
-      'با توجه به پاسخ‌ها، این مدل‌ها برای بررسی بیشتر پیشنهاد می‌شوند:\n\n',
-    );
+      return score(b).compareTo(score(a));
+    });
 
-    for (final m in candidates.take(3)) {
-      final economyPrice = m.price('ECONOMY', size);
-      final plusPrice = m.price('PLUS', size);
+    final result = StringBuffer();
 
+    result.writeln('نتیجه بررسی پاسخ‌های شما 🌹\n');
+    result.writeln('وزن اعلام‌شده: $weight');
+    result.writeln('حالت خواب: $position');
+    result.writeln('میزان سفتی دلخواه: $firmness');
+    result.writeln('وضعیت اعلام‌شده: $health');
+    result.writeln('ابعاد انتخابی: ${sizeLabel(size)}\n');
+
+    if (severeDisc) {
+      result.writeln(
+        'با توجه به اعلام دیسک شدید، مدل مدیکال فیدل '
+        'به‌عنوان گزینه اول برای بررسی معرفی می‌شود.',
+      );
+      result.writeln(
+        'این مدل تمام‌اسفنجی است و ضمانت ۱۵ ساله دارد. '
+        'انتخاب آن باید با نظر پزشک معالج و ترجیح سفتی مناسب انجام شود.\n',
+      );
+    } else if (hasDisc) {
+      result.writeln(
+        'با توجه به مشکل کمر اعلام‌شده، مدل‌های با سطح مناسب و '
+        'حمایت کافی باید با دقت بررسی شوند.\n',
+      );
+    }
+
+    result.writeln('مدل‌های قابل بررسی از میان ۱۰ مدل فیدل:\n');
+
+    for (final m in ranked) {
       result.writeln(
         'مدل ${m.name}\n'
         'نوع ساخت: ${m.type}\n'
-        'ضمانت: ${m.warranty}\n'
-        'قیمت اکونومی: ${economyPrice ?? 'استعلام'} میلیون تومان\n'
-        'قیمت پلاس: ${plusPrice ?? 'استعلام'} میلیون تومان\n',
+        'ضمانت: ${m.warranty}\n',
       );
     }
 
     result.writeln(
-      'این پیشنهاد صرفاً راهنمای اولیه برای انتخاب تشک است '
-      'و تشخیص پزشکی محسوب نمی‌شود. بهتر است قبل از خرید، '
-      'راحتی تشک را حضوری امتحان کنید.',
+      'قیمت‌های مشاور بر اساس اطلاعات ثابت قبلی برنامه هستند؛ '
+      'برای قیمت قطعی و سایز انتخابی، کاتالوگ محصولات را بررسی کنید.\n\n'
+      'این مشاوره تشخیص یا درمان پزشکی نیست. در صورت دیسک شدید، '
+      'جراحی یا درد منتشرشونده به پا، انتخاب تشک باید با نظر پزشک '
+      'معالج انجام شود. بهتر است پیش از خرید، تشک را حضوری امتحان کنید.',
     );
 
     messages.add(result.toString());
@@ -889,8 +1547,8 @@ class _AssistantPageState extends State<AssistantPage> {
           child: ListView.builder(
             padding: const EdgeInsets.all(16),
             itemCount: messages.length,
-            itemBuilder: (context, i) {
-              final isUser = messages[i].startsWith('شما:');
+            itemBuilder: (context, index) {
+              final isUser = messages[index].startsWith('شما:');
 
               return Align(
                 alignment: isUser
@@ -899,15 +1557,15 @@ class _AssistantPageState extends State<AssistantPage> {
                 child: Container(
                   margin: const EdgeInsets.only(bottom: 10),
                   padding: const EdgeInsets.all(14),
-                  constraints: const BoxConstraints(maxWidth: 320),
+                  constraints: const BoxConstraints(maxWidth: 330),
                   decoration: BoxDecoration(
                     color: isUser
-                        ? const Color(0xFF12345A)
+                        ? fidelBlue
                         : const Color(0xFFE8EEF5),
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Text(
-                    messages[i],
+                    messages[index],
                     style: TextStyle(
                       color: isUser ? Colors.white : Colors.black87,
                     ),
@@ -946,7 +1604,9 @@ class _AssistantPageState extends State<AssistantPage> {
   }
 }
 
-// ---------------- سفارش‌ها ----------------
+// =====================================================
+// سفارش‌ها
+// =====================================================
 
 class OrdersPage extends StatelessWidget {
   const OrdersPage({super.key});
@@ -962,7 +1622,7 @@ class OrdersPage extends StatelessWidget {
             Icon(
               Icons.receipt_long_outlined,
               size: 65,
-              color: Color(0xFF12345A),
+              color: fidelBlue,
             ),
             SizedBox(height: 16),
             Text(
