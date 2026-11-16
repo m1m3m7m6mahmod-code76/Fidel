@@ -474,62 +474,6 @@ class _AuthPageState extends State<AuthPage> {
 }
 
 // =====================================================
-// اطلاعات مشاور
-// =====================================================
-
-class Mattress {
-  final String name;
-  final String warranty;
-  final String type;
-  final Map<int, double> economy;
-  final Map<int, double> plus;
-
-  const Mattress(
-    this.name,
-    this.warranty,
-    this.type,
-    this.economy,
-    this.plus,
-  );
-
-  double? price(String tier, int size) =>
-      (tier == 'PLUS' ? plus : economy)[size];
-}
-
-const mattresses = <Mattress>[
-  Mattress('آسوده', '۲ سال', 'فنر متصل بونل',
-      {90:13.95,120:18.3,140:20.7,160:23.2,180:25.5},
-      {90:17.8,120:23.1,140:26.8,160:29.5,180:32.3}),
-  Mattress('آسایش', '۳ سال', 'فنر متصل بونل',
-      {90:17.36,120:23.2,140:27,160:29.26,180:32},
-      {90:23.7,120:30.8,140:36.5,160:38.7,180:41.6}),
-  Mattress('آرامش', '۴ سال', 'فنر میکرو + پد',
-      {90:26.25,120:33.9,140:40.5,160:43.95,180:48.3},
-      {90:36.5,120:47.1,140:57.5,160:60.8,180:66.5}),
-  Mattress('تاپ', '۵ سال', 'فنر میکرو',
-      {90:26.7,120:34.2,140:41,160:44.2,180:48.9},
-      {90:36.8,120:48.9,140:54.5,160:63,180:69}),
-  Mattress('کلاسیک', '۶ سال', 'فنر میکرو + پد',
-      {90:29,120:36.98,140:43.47,160:47.38,180:51.84},
-      {90:40.5,120:51.3,140:63.6,160:70,180:74.5}),
-  Mattress('المپیک', '۷ سال', 'فنر میکرو',
-      {90:29.29,120:39.42,140:45.36,160:49.4,180:54.27},
-      {90:43,120:51.9,140:66.5,160:71.5,180:79.9}),
-  Mattress('ریلکس', '۸ سال', 'فنر میکرو + پد',
-      {90:35.8,120:48.14,140:55.39,160:60,180:65.68},
-      {90:46.5,120:61.8,140:73.2,160:79.7,180:87.5}),
-  Mattress('آسمان', '۱۰ سال', 'فنر پاکتی + پد',
-      {90:52.2,120:64.67,140:74.38,160:84.68,180:93.67},
-      {90:69.6,120:84.5,140:99.5,160:113.4,180:124}),
-  Mattress('پلی‌تاپ', '۹ سال', 'بدون فنر + پد',
-      {90:41,120:51,140:61,160:66.3,180:70.98},
-      {90:53.8,120:71.2,140:83.5,160:90.5,180:98.5}),
-  Mattress('مدیکال', '۱۵ سال', 'تمام‌اسفنجی + پد',
-      {90:58.48,120:71.74,140:87,160:94,180:110.7},
-      {90:91.7,120:114,140:133,160:154.7,180:174}),
-];
-
-// =====================================================
 // ابزار محصولات
 // =====================================================
 
@@ -599,6 +543,16 @@ String productName(Map<String, dynamic> data, String documentId) {
 
 String sizeLabel(int size) {
   return size == 70 ? '۷۰×۱۳۰' : '$size×۲۰۰';
+}
+
+String formatPrice(dynamic value) {
+  if (value == null) return 'استعلام';
+
+  if (value is num) {
+    return value.toString();
+  }
+
+  return value.toString();
 }
 
 // =====================================================
@@ -899,7 +853,6 @@ class _CatalogPageState extends State<CatalogPage> {
 
                 if (category != tier) return false;
 
-                // سایز ۷۰ فقط برای آسوده و آسوده پلاس
                 if (size == 70) {
                   final name = productName(data, doc.id);
                   if (!name.contains('آسوده')) return false;
@@ -993,11 +946,6 @@ class _CatalogPageState extends State<CatalogPage> {
       ],
     );
   }
-}
-
-String formatPrice(dynamic value) {
-  if (value == null) return 'استعلام';
-  return value.toString();
 }
 
 // =====================================================
@@ -1337,7 +1285,7 @@ class BranchesPage extends StatelessWidget {
 }
 
 // =====================================================
-// مشاور هوشمند
+// مشاور هوشمند جدید - متصل به فایربیس
 // =====================================================
 
 class AssistantPage extends StatefulWidget {
@@ -1349,53 +1297,33 @@ class AssistantPage extends StatefulWidget {
 
 class _AssistantPageState extends State<AssistantPage> {
   final controller = TextEditingController();
+  final scrollController = ScrollController();
 
   final messages = <String>[
     'سلام، به مشاور فیدل خوش آمدید 🌹\n'
-    'برای شروع، وزن تقریبی استفاده‌کنندگان و ابعاد تشک موردنظر را بگویید.',
+    'برای شروع، وزن تقریبی استفاده‌کنندگان و ابعاد تشک موردنظر را بگویید.\n'
+    'مثلاً: وزن ۸۵ کیلوگرم، تشک ۱۶۰ در ۲۰۰',
   ];
 
   final answers = <String>[];
+
   int step = 0;
   int size = 160;
+  bool loading = false;
 
-  void send() {
-    final value = controller.text.trim();
-    if (value.isEmpty) return;
+  void addMessage(String value) {
+    if (!mounted) return;
 
     setState(() {
-      messages.add('شما: $value');
-      controller.clear();
+      messages.add(value);
+    });
 
-      if (step == 0) {
-        answers.add(value);
-        detectSize(value);
-
-        messages.add(
-          'سؤال دوم: معمولاً به چه حالتی می‌خوابید؟ '
-          'به پهلو، به پشت یا روی شکم؟',
-        );
-        step++;
-      } else if (step == 1) {
-        answers.add(value);
-        messages.add(
-          'سؤال سوم: تشک را سفت، متوسط یا نرم می‌پسندید؟',
-        );
-        step++;
-      } else if (step == 2) {
-        answers.add(value);
-        messages.add(
-          'سؤال چهارم: آیا کمردرد، دیسک کمر، سیاتیک یا مشکل پزشکی دارید؟ '
-          'اگر دارید، شدت آن را توضیح دهید.',
-        );
-        step++;
-      } else if (step == 3) {
-        answers.add(value);
-        step++;
-        recommend();
-      } else {
-        messages.add(
-          'برای شروع مشاوره جدید، برنامه را دوباره باز کنید.',
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (scrollController.hasClients) {
+        scrollController.animateTo(
+          scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
         );
       }
     });
@@ -1419,123 +1347,335 @@ class _AssistantPageState extends State<AssistantPage> {
     }
   }
 
-  void recommend() {
+  String normalizeName(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll('ي', 'ی')
+        .replaceAll('ك', 'ک')
+        .replaceAll('‌', '')
+        .replaceAll(' ', '')
+        .replaceAll('-', '')
+        .replaceAll('_', '');
+  }
+
+  bool isFullMedical(String name) {
+    final n = normalizeName(name);
+
+    return n.contains('مدیکال') ||
+        n.contains('medical') ||
+        n.contains('پلیتاپ') ||
+        n.contains('polytop');
+  }
+
+  bool isSevereDisc(String value) {
+    final text = value.toLowerCase();
+
+    return text.contains('حاد') ||
+        text.contains('شدید') ||
+        text.contains('شدت زیاد') ||
+        text.contains('فتق دیسک') ||
+        text.contains('جراحی دیسک') ||
+        text.contains('عمل دیسک') ||
+        text.contains('عمل جراحی کمر') ||
+        text.contains('بعد از عمل');
+  }
+
+  bool hasBackProblem(String value) {
+    final text = value.toLowerCase();
+
+    return text.contains('دیسک') ||
+        text.contains('سیاتیک') ||
+        text.contains('کمردرد') ||
+        text.contains('کمر درد') ||
+        text.contains('گودی کمر') ||
+        text.contains('مهره');
+  }
+
+  void send() {
+    final value = controller.text.trim();
+    if (value.isEmpty || loading) return;
+
+    controller.clear();
+    addMessage('شما: $value');
+
+    if (step == 0) {
+      answers.add(value);
+      detectSize(value);
+
+      addMessage(
+        'سؤال دوم: معمولاً به چه حالتی می‌خوابید؟ '
+        'به پهلو، به پشت یا روی شکم؟',
+      );
+      step = 1;
+    } else if (step == 1) {
+      answers.add(value);
+
+      addMessage(
+        'سؤال سوم: تشک را سفت، متوسط یا نرم می‌پسندید؟',
+      );
+      step = 2;
+    } else if (step == 2) {
+      answers.add(value);
+
+      addMessage(
+        'سؤال چهارم: آیا کمردرد، دیسک کمر، سیاتیک یا مشکل پزشکی دارید؟ '
+        'اگر دارید، شدت آن را توضیح دهید.',
+      );
+      step = 3;
+    } else if (step == 3) {
+      answers.add(value);
+      step = 4;
+
+      recommend();
+    } else {
+      addMessage(
+        'برای مشاوره جدید، صفحه مشاور را دوباره باز کنید.',
+      );
+    }
+  }
+
+  int productScore(
+    String name,
+    String type,
+    String position,
+    String firmness,
+    bool hasDisc,
+  ) {
+    int score = 0;
+
+    final n = normalizeName(name);
+    final t = normalizeName(type);
+
+    if (n.contains('تاپ') || n.contains('top')) {
+      score += 10;
+    }
+
+    if (n.contains('المپیک')) {
+      score += 10;
+    }
+
+    if (n.contains('مدیکال') || n.contains('medical')) {
+      score += 12;
+    }
+
+    if (n.contains('پلیتاپ') || n.contains('polytop')) {
+      score += 10;
+    }
+
+    if (firmness.contains('سفت')) {
+      if (t.contains('میکرو') || t.contains('بدونفنر')) {
+        score += 5;
+      }
+
+      if (t.contains('پاکتی')) {
+        score -= 5;
+      }
+    }
+
+    if (firmness.contains('نرم')) {
+      if (t.contains('پاکتی')) {
+        score += 5;
+      }
+    }
+
+    if (position.contains('پهلو')) {
+      if (n.contains('آرامش') || n.contains('کلاسیک')) {
+        score += 3;
+      }
+    }
+
+    if (hasDisc && t.contains('پاکتی')) {
+      score -= 5;
+    }
+
+    return score;
+  }
+
+  Future<void> recommend() async {
+    if (answers.length < 4) return;
+
     final weight = answers[0];
     final position = answers[1];
     final firmness = answers[2];
     final health = answers[3];
 
-    final healthText = health.toLowerCase();
+    final severeDisc = isSevereDisc(health);
+    final backProblem = hasBackProblem(health);
 
-    final severeDisc =
-        healthText.contains('حاد') ||
-        healthText.contains('شدید') ||
-        healthText.contains('شدت زیاد') ||
-        healthText.contains('فتق دیسک') ||
-        healthText.contains('جراحی دیسک') ||
-        healthText.contains('عمل دیسک');
+    if (mounted) {
+      setState(() => loading = true);
+    }
 
-    final hasDisc =
-        healthText.contains('دیسک') ||
-        healthText.contains('سیاتیک') ||
-        healthText.contains('کمردرد') ||
-        healthText.contains('کمر درد');
+    addMessage('در حال بررسی محصولات فیدل و دریافت قیمت‌ها از پایگاه داده...');
 
-    final soft = firmness.contains('نرم');
-    final firm = firmness.contains('سفت');
+    try {
+      final snapshot = await db.collection('products').get();
 
-    final ranked = List<Mattress>.from(mattresses);
+      if (!mounted) return;
 
-    ranked.sort((a, b) {
-      int score(Mattress m) {
-        int value = 0;
+      final products = snapshot.docs.map((doc) {
+        return {
+          'id': doc.id,
+          ...doc.data(),
+        };
+      }).toList();
 
-        if (severeDisc) {
-          if (m.name == 'مدیکال') value += 100;
-          if (m.name == 'تاپ') value += 25;
-          if (m.name == 'المپیک') value += 20;
-          if (m.name == 'کلاسیک') value += 10;
-          if (m.type.contains('پاکتی')) value -= 20;
-        } else if (hasDisc) {
-          if (m.name == 'تاپ') value += 30;
-          if (m.name == 'المپیک') value += 25;
-          if (m.name == 'مدیکال') value += 20;
-          if (m.name == 'آسمان') value -= 15;
-        }
-
-        if (firm) {
-          if (m.name == 'تاپ' || m.name == 'المپیک') {
-            value += 15;
-          }
-          if (m.name == 'آسمان') value -= 10;
-        }
-
-        if (soft) {
-          if (m.name == 'آسمان' || m.name == 'ریلکس') {
-            value += 15;
-          }
-        }
-
-        if (position.contains('پهلو') &&
-            (m.name == 'آرامش' || m.name == 'کلاسیک')) {
-          value += 5;
-        }
-
-        return value;
+      if (products.isEmpty) {
+        addMessage(
+          'در حال حاضر محصولی در پایگاه داده فیدل ثبت نشده است.',
+        );
+        return;
       }
 
-      return score(b).compareTo(score(a));
-    });
+      final fullMedical = products.where((p) {
+        final name = productName(
+          p,
+          readText(p['id']),
+        );
 
-    final result = StringBuffer();
+        return isFullMedical(name);
+      }).toList();
 
-    result.writeln('نتیجه بررسی پاسخ‌های شما 🌹\n');
-    result.writeln('وزن اعلام‌شده: $weight');
-    result.writeln('حالت خواب: $position');
-    result.writeln('میزان سفتی دلخواه: $firmness');
-    result.writeln('وضعیت اعلام‌شده: $health');
-    result.writeln('ابعاد انتخابی: ${sizeLabel(size)}\n');
+      products.sort((a, b) {
+        final nameA = productName(a, readText(a['id']));
+        final nameB = productName(b, readText(b['id']));
 
-    if (severeDisc) {
+        final typeA = readText(a['type'], readText(a['features']));
+        final typeB = readText(b['type'], readText(b['features']));
+
+        final scoreA = productScore(
+          nameA,
+          typeA,
+          position,
+          firmness,
+          backProblem,
+        );
+
+        final scoreB = productScore(
+          nameB,
+          typeB,
+          position,
+          firmness,
+          backProblem,
+        );
+
+        return scoreB.compareTo(scoreA);
+      });
+
+      if (severeDisc && fullMedical.isNotEmpty) {
+        products.removeWhere((p) {
+          final name = productName(p, readText(p['id']));
+          return isFullMedical(name);
+        });
+
+        products.insertAll(0, fullMedical);
+      }
+
+      final result = StringBuffer();
+
+      result.writeln('نتیجه بررسی پاسخ‌های شما 🌹\n');
+      result.writeln('وزن اعلام‌شده: $weight');
+      result.writeln('حالت خواب: $position');
+      result.writeln('میزان سفتی دلخواه: $firmness');
+      result.writeln('وضعیت اعلام‌شده: $health');
+      result.writeln('ابعاد انتخابی: ${sizeLabel(size)}\n');
+
+      if (severeDisc) {
+        result.writeln(
+          'با توجه به اعلام دیسک شدید یا سابقه جراحی، '
+          'مدل‌های طبی کامل فیدل در اولویت بررسی قرار می‌گیرند.',
+        );
+
+        result.writeln(
+          'این گروه شامل مدیکال، مدیکال پلاس، پلی‌تاپ و پلی‌تاپ پلاس '
+          'است؛ البته فقط مدل‌هایی نمایش داده می‌شوند که در فایربیس '
+          'ثبت شده باشند.\n',
+        );
+
+        if (fullMedical.isEmpty) {
+          result.writeln(
+            'توجه: در اطلاعات فعلی فایربیس، محصولی با نام مدیکال '
+            'یا پلی‌تاپ پیدا نشد. لطفاً نام محصولات را در کاتالوگ بررسی کنید.\n',
+          );
+        }
+      } else if (backProblem) {
+        result.writeln(
+          'با توجه به مشکل کمر اعلام‌شده، محصولات با سطح مناسب و '
+          'ساختار پشتیبانی‌کننده برای بررسی در اولویت قرار گرفته‌اند.\n',
+        );
+      }
+
+      result.writeln('محصولات پیشنهادی از کاتالوگ فیدل:\n');
+
+      int shown = 0;
+
+      for (final p in products) {
+        if (shown >= 12) break;
+
+        final id = readText(p['id']);
+        final name = productName(p, id);
+        final warranty = readText(p['warranty'], 'ثبت نشده');
+        final type = readText(
+          p['type'],
+          readText(p['features'], 'ثبت نشده'),
+        );
+
+        final price = findPrice(p, size);
+        final height = readText(
+          p['height'],
+          readText(p['thickness']),
+        );
+
+        final description = readText(p['description']);
+
+        result.writeln('مدل: $name');
+        result.writeln('نوع ساخت: $type');
+        result.writeln('ضمانت: $warranty');
+        result.writeln(
+          'قیمت سایز ${sizeLabel(size)}: '
+          '${price == null ? 'استعلام' : '${formatPrice(price)} میلیون تومان'}',
+        );
+
+        if (height.isNotEmpty) {
+          result.writeln('ارتفاع: $height');
+        }
+
+        if (description.isNotEmpty) {
+          result.writeln('توضیحات: $description');
+        }
+
+        result.writeln('');
+        shown++;
+      }
+
       result.writeln(
-        'با توجه به اعلام دیسک شدید، مدل مدیکال فیدل '
-        'به‌عنوان گزینه اول برای بررسی معرفی می‌شود.',
+        'قیمت‌ها از اطلاعات ثبت‌شده محصولات در فایربیس خوانده شده‌اند. '
+        'اگر قیمت سایز انتخابی ثبت نشده باشد، عبارت استعلام نمایش داده می‌شود.\n\n'
+        'نکته مهم پزشکی: این مشاوره تشخیص یا درمان پزشکی نیست و '
+        'هیچ تشکی درمان دیسک یا کمردرد را تضمین نمی‌کند. '
+        'در صورت دیسک شدید، جراحی یا درد منتشرشونده به پا، '
+        'انتخاب تشک باید با نظر پزشک معالج انجام شود. '
+        'بهتر است پیش از خرید، تشک را حضوری امتحان کنید.',
       );
-      result.writeln(
-        'این مدل تمام‌اسفنجی است و ضمانت ۱۵ ساله دارد. '
-        'انتخاب آن باید با نظر پزشک معالج و ترجیح سفتی مناسب انجام شود.\n',
+
+      addMessage(result.toString());
+    } catch (e) {
+      addMessage(
+        'دریافت اطلاعات محصولات با خطا روبه‌رو شد.\n'
+        'لطفاً اتصال اینترنت و دسترسی فایربیس را بررسی کنید.\n'
+        '$e',
       );
-    } else if (hasDisc) {
-      result.writeln(
-        'با توجه به مشکل کمر اعلام‌شده، مدل‌های با سطح مناسب و '
-        'حمایت کافی باید با دقت بررسی شوند.\n',
-      );
+    } finally {
+      if (mounted) {
+        setState(() => loading = false);
+      }
     }
-
-    result.writeln('مدل‌های قابل بررسی از میان ۱۰ مدل فیدل:\n');
-
-    for (final m in ranked) {
-      result.writeln(
-        'مدل ${m.name}\n'
-        'نوع ساخت: ${m.type}\n'
-        'ضمانت: ${m.warranty}\n',
-      );
-    }
-
-    result.writeln(
-      'قیمت‌های مشاور بر اساس اطلاعات ثابت قبلی برنامه هستند؛ '
-      'برای قیمت قطعی و سایز انتخابی، کاتالوگ محصولات را بررسی کنید.\n\n'
-      'این مشاوره تشخیص یا درمان پزشکی نیست. در صورت دیسک شدید، '
-      'جراحی یا درد منتشرشونده به پا، انتخاب تشک باید با نظر پزشک '
-      'معالج انجام شود. بهتر است پیش از خرید، تشک را حضوری امتحان کنید.',
-    );
-
-    messages.add(result.toString());
   }
 
   @override
   void dispose() {
     controller.dispose();
+    scrollController.dispose();
     super.dispose();
   }
 
@@ -1545,6 +1685,7 @@ class _AssistantPageState extends State<AssistantPage> {
       children: [
         Expanded(
           child: ListView.builder(
+            controller: scrollController,
             padding: const EdgeInsets.all(16),
             itemCount: messages.length,
             itemBuilder: (context, index) {
@@ -1557,7 +1698,7 @@ class _AssistantPageState extends State<AssistantPage> {
                 child: Container(
                   margin: const EdgeInsets.only(bottom: 10),
                   padding: const EdgeInsets.all(14),
-                  constraints: const BoxConstraints(maxWidth: 330),
+                  constraints: const BoxConstraints(maxWidth: 340),
                   decoration: BoxDecoration(
                     color: isUser
                         ? fidelBlue
@@ -1575,6 +1716,11 @@ class _AssistantPageState extends State<AssistantPage> {
             },
           ),
         ),
+        if (loading)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 8),
+            child: LinearProgressIndicator(),
+          ),
         SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(12),
@@ -1583,6 +1729,7 @@ class _AssistantPageState extends State<AssistantPage> {
                 Expanded(
                   child: TextField(
                     controller: controller,
+                    enabled: !loading,
                     decoration: const InputDecoration(
                       hintText: 'پاسخ خود را بنویسید...',
                       border: OutlineInputBorder(),
@@ -1592,7 +1739,7 @@ class _AssistantPageState extends State<AssistantPage> {
                 ),
                 const SizedBox(width: 8),
                 IconButton.filled(
-                  onPressed: send,
+                  onPressed: loading ? null : send,
                   icon: const Icon(Icons.send),
                 ),
               ],
