@@ -634,11 +634,12 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    // ترتیب صفحات: شعب، محصولات، مشاور، سفارش‌ها
     final pages = [
+      BranchesPage(isAdmin: isAdmin),
       const CatalogPage(),
       const AssistantPage(),
       const OrdersPage(),
-      BranchesPage(isAdmin: isAdmin),
     ];
 
     return Scaffold(
@@ -696,6 +697,10 @@ class _HomePageState extends State<HomePage> {
         onDestinationSelected: (v) => setState(() => tab = v),
         destinations: const [
           NavigationDestination(
+            icon: Icon(Icons.store_outlined),
+            label: 'شعب و نمایندگی',
+          ),
+          NavigationDestination(
             icon: Icon(Icons.bed_outlined),
             label: 'محصولات',
           ),
@@ -706,10 +711,6 @@ class _HomePageState extends State<HomePage> {
           NavigationDestination(
             icon: Icon(Icons.receipt_long_outlined),
             label: 'سفارش‌ها',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.store_outlined),
-            label: 'شعب و نمایندگی',
           ),
         ],
       ),
@@ -818,8 +819,8 @@ class _CatalogPageState extends State<CatalogPage> {
         const SizedBox(height: 8),
         Expanded(
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            // اصلاح: خواندن تمام محصولات در زیرمجموعه‌های تودرتو
-            stream: db.collectionGroup('products').snapshots(),
+            // محصولات در مجموعه اصلی products قرار دارند.
+            stream: db.collection('products').snapshots(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(
@@ -1505,8 +1506,8 @@ class _AssistantPageState extends State<AssistantPage> {
     addMessage('در حال بررسی محصولات فیدل و دریافت قیمت‌ها از پایگاه داده...');
 
     try {
-      // اصلاح: مشاور نیز تمام محصولات تودرتو را می‌خواند.
-      final snapshot = await db.collectionGroup('products').get();
+      // محصولات از مجموعه اصلی products خوانده می‌شوند.
+      final snapshot = await db.collection('products').get();
 
       if (!mounted) return;
 
