@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'product_images.dart';
 
 const String adminUid = 'mbYMqJC4fHUgf1Mf3IhzyEeOa982';
 const Color fidelBlue = Color(0xFF12345A);
@@ -989,9 +990,8 @@ class _CatalogPageState extends State<CatalogPage> {
                   return Card(
                     margin: const EdgeInsets.only(bottom: 10),
                     child: ExpansionTile(
-                      leading: const CircleAvatar(
-                        backgroundColor: Color(0xFFE8EEF5),
-                        child: Icon(Icons.bed, color: fidelBlue),
+                      leading: ProductImageWidget(
+                        productId: doc.id,
                       ),
                       title: Text(
                         name,
@@ -1010,6 +1010,17 @@ class _CatalogPageState extends State<CatalogPage> {
                         ),
                       ),
                       children: [
+                        Padding(
+                          padding: const EdgeInsets.only(top: 14),
+                          child: Center(
+                            child: ProductImageWidget(
+                              productId: doc.id,
+                              width: 220,
+                              height: 160,
+                              showPlaceholder: false,
+                            ),
+                          ),
+                        ),
                         Padding(
                           padding: const EdgeInsets.all(14),
                           child: Column(
@@ -1096,11 +1107,16 @@ class ProductManagementPage extends StatelessWidget {
     if (confirmed != true) return;
 
     try {
-      await db.collection('products').doc(id).delete();
+      final batch = db.batch();
+
+      batch.delete(db.collection('products').doc(id));
+      batch.delete(db.collection('product_images').doc(id));
+
+      await batch.commit();
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('محصول حذف شد.')),
+          const SnackBar(content: Text('محصول و عکس آن حذف شدند.')),
         );
       }
     } catch (e) {
@@ -1110,6 +1126,20 @@ class ProductManagementPage extends StatelessWidget {
         );
       }
     }
+  }
+
+  Future<void> openImageEditor(
+    BuildContext context,
+    String id,
+    String name,
+  ) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => ProductImageEditorDialog(
+        productId: id,
+        productName: name,
+      ),
+    );
   }
 
   @override
@@ -1203,12 +1233,8 @@ class ProductManagementPage extends StatelessWidget {
                   return Card(
                     margin: const EdgeInsets.only(bottom: 10),
                     child: ExpansionTile(
-                      leading: const CircleAvatar(
-                        backgroundColor: Color(0xFFE8EEF5),
-                        child: Icon(
-                          Icons.inventory_2_outlined,
-                          color: fidelBlue,
-                        ),
+                      leading: ProductImageWidget(
+                        productId: doc.id,
                       ),
                       title: Text(
                         name,
@@ -1280,6 +1306,17 @@ class ProductManagementPage extends StatelessWidget {
                                     ),
                                     icon: const Icon(Icons.edit),
                                     label: const Text('ویرایش'),
+                                  ),
+                                  OutlinedButton.icon(
+                                    onPressed: () => openImageEditor(
+                                      context,
+                                      doc.id,
+                                      name,
+                                    ),
+                                    icon: const Icon(
+                                      Icons.photo_camera_outlined,
+                                    ),
+                                    label: const Text('مدیریت عکس'),
                                   ),
                                   TextButton.icon(
                                     onPressed: () => deleteProduct(
@@ -1471,7 +1508,6 @@ class _ProductEditorDialogState extends State<ProductEditorDialog> {
         updateData['createdAt'] = FieldValue.serverTimestamp();
         await collection.add(updateData);
       } else {
-        // ادغام اطلاعات برای حفظ فیلدهای قدیمی و ناشناخته محصول
         await collection.doc(widget.documentId).set(
           updateData,
           SetOptions(merge: true),
@@ -1479,8 +1515,9 @@ class _ProductEditorDialogState extends State<ProductEditorDialog> {
       }
 
       if (mounted) {
+        final messenger = ScaffoldMessenger.of(context);
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           SnackBar(
             content: Text(
               widget.documentId == null
