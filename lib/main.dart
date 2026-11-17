@@ -194,7 +194,6 @@ class _AuthPageState extends State<AuthPage> {
         phoneNumber: phone,
         timeout: const Duration(seconds: 60),
         forceResendingToken: resendToken,
-
         verificationCompleted: (PhoneAuthCredential credential) async {
           try {
             await auth.signInWithCredential(credential);
@@ -204,13 +203,11 @@ class _AuthPageState extends State<AuthPage> {
             if (mounted) setState(() => loading = false);
           }
         },
-
         verificationFailed: (FirebaseAuthException e) {
           if (!mounted) return;
           setState(() => loading = false);
           message(authError(e));
         },
-
         codeSent: (String id, int? token) {
           if (!mounted) return;
           setState(() {
@@ -221,7 +218,6 @@ class _AuthPageState extends State<AuthPage> {
           });
           message('کد تأیید ارسال شد.');
         },
-
         codeAutoRetrievalTimeout: (String id) {
           verificationId = id;
         },
@@ -345,7 +341,6 @@ class _AuthPageState extends State<AuthPage> {
                       ],
                     ),
                     const SizedBox(height: 22),
-
                     if (customerMode) ...[
                       const Text(
                         'ورود با شماره موبایل',
@@ -823,7 +818,8 @@ class _CatalogPageState extends State<CatalogPage> {
         const SizedBox(height: 8),
         Expanded(
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: db.collection('products').snapshots(),
+            // اصلاح: خواندن تمام محصولات در زیرمجموعه‌های تودرتو
+            stream: db.collectionGroup('products').snapshots(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(
@@ -1285,7 +1281,7 @@ class BranchesPage extends StatelessWidget {
 }
 
 // =====================================================
-// مشاور هوشمند جدید - متصل به فایربیس
+// مشاور هوشمند متصل به فایربیس
 // =====================================================
 
 class AssistantPage extends StatefulWidget {
@@ -1509,7 +1505,8 @@ class _AssistantPageState extends State<AssistantPage> {
     addMessage('در حال بررسی محصولات فیدل و دریافت قیمت‌ها از پایگاه داده...');
 
     try {
-      final snapshot = await db.collection('products').get();
+      // اصلاح: مشاور نیز تمام محصولات تودرتو را می‌خواند.
+      final snapshot = await db.collectionGroup('products').get();
 
       if (!mounted) return;
 
