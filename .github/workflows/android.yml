@@ -25,6 +25,7 @@ jobs:
 
       - name: Save Firebase Configuration
         run: |
+          set -e
           test -f pubspec.yaml
           test -f lib/main.dart
           test -f assets/logo.png
@@ -35,12 +36,14 @@ jobs:
 
       - name: Generate Android Project
         run: |
+          set -e
           flutter create --platforms=android --org com.fidel.app .
           mkdir -p android/app
           cp "$RUNNER_TEMP/fidel/google-services.json" android/app/google-services.json
 
       - name: Configure Firebase
         run: |
+          set -e
           python3 - <<'PY'
           from pathlib import Path
           import json
@@ -52,6 +55,7 @@ jobs:
               for c in config.get("client", [])
               if "android_client_info" in c.get("client_info", {})
           ]
+
           if "com.fidel.app" not in packages:
               raise SystemExit("Firebase package name must be com.fidel.app")
 
@@ -155,6 +159,17 @@ jobs:
           from pathlib import Path
           import re
 
+          def find_block_end(content, opening):
+              depth = 0
+              for i in range(opening, len(content)):
+                  if content[i] == "{":
+                      depth += 1
+                  elif content[i] == "}":
+                      depth -= 1
+                      if depth == 0:
+                          return i
+              raise SystemExit("Unclosed Gradle block")
+
           kts = Path("android/app/build.gradle.kts")
           groovy = Path("android/app/build.gradle")
 
@@ -181,7 +196,7 @@ jobs:
               if "val keystoreProperties = Properties()" not in content:
                   match = re.search(r'(?m)^android\s*\{', content)
                   if not match:
-                      raise SystemExit("Android block not found in Gradle file")
+                      raise SystemExit("Android block not found")
                   content = content[:match.start()] + properties + content[match.start():]
 
               signing = """    signingConfigs {
@@ -201,15 +216,37 @@ jobs:
                       raise SystemExit("buildTypes block not found")
                   content = content[:match.start()] + signing + content[match.start():]
 
-              content, count = re.subn(
-                  r'signingConfig\s*=\s*signingConfigs\.getByName\("debug"\)',
-                  'signingConfig = signingConfigs.getByName("release")',
-                  content,
-                  count=1
+              bt = re.search(r'(?m)^(\s*)buildTypes\s*\{', content)
+              bt_open = content.find("{", bt.start())
+              bt_end = find_block_end(content, bt_open)
+
+              release = re.search(
+                  r'(?m)^(\s*)release\s*\{',
+                  content[bt_open + 1:bt_end]
+              )
+              if not release:
+                  raise SystemExit("Release build type not found")
+
+              release_start = bt_open + 1 + release.start()
+              release_open = content.find("{", release_start)
+              release_end = find_block_end(content, release_open)
+
+              indent = release.group(1) + "    "
+              block = content[release_open + 1:release_end]
+
+              block = re.sub(
+                  r'(?m)^[ \t]*(?://\s*)?signingConfig\s*=.*(?:\n|$)',
+                  '',
+                  block
               )
 
-              if count == 0 and 'signingConfig = signingConfigs.getByName("release")' not in content:
-                  raise SystemExit("Could not configure release signing")
+              new_line = '\n' + indent + 'signingConfig = signingConfigs.getByName("release")'
+              content = (
+                  content[:release_open + 1]
+                  + new_line
+                  + block
+                  + content[release_end:]
+              )
 
           elif groovy.exists():
               path = groovy
@@ -234,7 +271,7 @@ jobs:
               if "def keystoreProperties = new Properties()" not in content:
                   match = re.search(r'(?m)^android\s*\{', content)
                   if not match:
-                      raise SystemExit("Android block not found in Gradle file")
+                      raise SystemExit("Android block not found")
                   content = content[:match.start()] + properties + content[match.start():]
 
               signing = """    signingConfigs {
@@ -254,15 +291,37 @@ jobs:
                       raise SystemExit("buildTypes block not found")
                   content = content[:match.start()] + signing + content[match.start():]
 
-              content, count = re.subn(
-                  r'signingConfig\s+signingConfigs\.debug',
-                  'signingConfig signingConfigs.release',
-                  content,
-                  count=1
+              bt = re.search(r'(?m)^(\s*)buildTypes\s*\{', content)
+              bt_open = content.find("{", bt.start())
+              bt_end = find_block_end(content, bt_open)
+
+              release = re.search(
+                  r'(?m)^(\s*)release\s*\{',
+                  content[bt_open + 1:bt_end]
+              )
+              if not release:
+                  raise SystemExit("Release build type not found")
+
+              release_start = bt_open + 1 + release.start()
+              release_open = content.find("{", release_start)
+              release_end = find_block_end(content, release_open)
+
+              indent = release.group(1) + "    "
+              block = content[release_open + 1:release_end]
+
+              block = re.sub(
+                  r'(?m)^[ \t]*(?://\s*)?signingConfig\s+.*(?:\n|$)',
+                  '',
+                  block
               )
 
-              if count == 0 and "signingConfig signingConfigs.release" not in content:
-                  raise SystemExit("Could not configure release signing")
+              new_line = '\n' + indent + 'signingConfig signingConfigs.release'
+              content = (
+                  content[:release_open + 1]
+                  + new_line
+                  + block
+                  + content[release_end:]
+              )
 
           else:
               raise SystemExit("Android Gradle file not found")
