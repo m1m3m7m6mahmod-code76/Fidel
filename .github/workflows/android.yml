@@ -127,6 +127,150 @@ jobs:
           print("Firebase configuration completed successfully.")
           PY
 
+      - name: Configure Release Signing
+        env:
+          FIDEL_KEYSTORE_BASE64: ${{ secrets.FIDEL_KEYSTORE_BASE64 }}
+          FIDEL_STORE_PASSWORD: ${{ secrets.FIDEL_STORE_PASSWORD }}
+          FIDEL_KEY_PASSWORD: ${{ secrets.FIDEL_KEY_PASSWORD }}
+          FIDEL_KEY_ALIAS: ${{ secrets.FIDEL_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+
+          test -n "$FIDEL_KEYSTORE_BASE64"
+          test -n "$FIDEL_STORE_PASSWORD"
+          test -n "$FIDEL_KEY_PASSWORD"
+          test -n "$FIDEL_KEY_ALIAS"
+
+          printf '%s' "$FIDEL_KEYSTORE_BASE64" | base64 --decode > android/app/fidel-upload.jks
+          test -s android/app/fidel-upload.jks
+
+          cat > android/key.properties <<EOF
+          storePassword=$FIDEL_STORE_PASSWORD
+          keyPassword=$FIDEL_KEY_PASSWORD
+          keyAlias=$FIDEL_KEY_ALIAS
+          storeFile=fidel-upload.jks
+          EOF
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          kts = Path("android/app/build.gradle.kts")
+          groovy = Path("android/app/build.gradle")
+
+          if kts.exists():
+              path = kts
+              content = path.read_text()
+
+              for imp in (
+                  "import java.util.Properties",
+                  "import java.io.FileInputStream"
+              ):
+                  if imp not in content:
+                      content = imp + "\n" + content
+
+              properties = """
+          val keystoreProperties = Properties()
+          val keystorePropertiesFile = rootProject.file("key.properties")
+          if (keystorePropertiesFile.exists()) {
+              keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+          }
+
+          """
+
+              if "val keystoreProperties = Properties()" not in content:
+                  match = re.search(r'(?m)^android\s*\{', content)
+                  if not match:
+                      raise SystemExit("Android block not found in Gradle file")
+                  content = content[:match.start()] + properties + content[match.start():]
+
+              signing = """    signingConfigs {
+                  create("release") {
+                      keyAlias = keystoreProperties["keyAlias"] as String
+                      keyPassword = keystoreProperties["keyPassword"] as String
+                      storeFile = file(keystoreProperties["storeFile"] as String)
+                      storePassword = keystoreProperties["storePassword"] as String
+                  }
+              }
+
+          """
+
+              if 'create("release")' not in content:
+                  match = re.search(r'(?m)^(\s*)buildTypes\s*\{', content)
+                  if not match:
+                      raise SystemExit("buildTypes block not found")
+                  content = content[:match.start()] + signing + content[match.start():]
+
+              content, count = re.subn(
+                  r'signingConfig\s*=\s*signingConfigs\.getByName\("debug"\)',
+                  'signingConfig = signingConfigs.getByName("release")',
+                  content,
+                  count=1
+              )
+
+              if count == 0 and 'signingConfig = signingConfigs.getByName("release")' not in content:
+                  raise SystemExit("Could not configure release signing")
+
+          elif groovy.exists():
+              path = groovy
+              content = path.read_text()
+
+              for imp in (
+                  "import java.util.Properties",
+                  "import java.io.FileInputStream"
+              ):
+                  if imp not in content:
+                      content = imp + "\n" + content
+
+              properties = """
+          def keystoreProperties = new Properties()
+          def keystorePropertiesFile = rootProject.file('key.properties')
+          if (keystorePropertiesFile.exists()) {
+              keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+          }
+
+          """
+
+              if "def keystoreProperties = new Properties()" not in content:
+                  match = re.search(r'(?m)^android\s*\{', content)
+                  if not match:
+                      raise SystemExit("Android block not found in Gradle file")
+                  content = content[:match.start()] + properties + content[match.start():]
+
+              signing = """    signingConfigs {
+                  release {
+                      keyAlias keystoreProperties['keyAlias']
+                      keyPassword keystoreProperties['keyPassword']
+                      storeFile file(keystoreProperties['storeFile'])
+                      storePassword keystoreProperties['storePassword']
+                  }
+              }
+
+          """
+
+              if "signingConfigs {" not in content:
+                  match = re.search(r'(?m)^(\s*)buildTypes\s*\{', content)
+                  if not match:
+                      raise SystemExit("buildTypes block not found")
+                  content = content[:match.start()] + signing + content[match.start():]
+
+              content, count = re.subn(
+                  r'signingConfig\s+signingConfigs\.debug',
+                  'signingConfig signingConfigs.release',
+                  content,
+                  count=1
+              )
+
+              if count == 0 and "signingConfig signingConfigs.release" not in content:
+                  raise SystemExit("Could not configure release signing")
+
+          else:
+              raise SystemExit("Android Gradle file not found")
+
+          path.write_text(content)
+          print("Fidel release signing configured successfully.")
+          PY
+
       - name: Get SHA Fingerprints
         run: |
           cd android
