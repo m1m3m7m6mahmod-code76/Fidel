@@ -26,7 +26,7 @@ class FidelApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'فیدل | فروشگاه تشک',
+      title: 'مدیریت فیدل',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: fidelBlue),
         useMaterial3: true,
@@ -84,6 +84,7 @@ String formatPrice(dynamic value) {
   for (int i = 0; i < raw.length; i++) {
     buffer.write(raw[i]);
     final remaining = raw.length - i - 1;
+
     if (remaining > 0 && remaining % 3 == 0) {
       buffer.write('٬');
     }
@@ -130,7 +131,7 @@ dynamic findPrice(Map<String, dynamic> data, int size) {
     if (value != null) return value;
   }
 
-  final possibleKeys = [
+  final keys = [
     'price_$size',
     'price$size',
     '${size}_price',
@@ -141,7 +142,7 @@ dynamic findPrice(Map<String, dynamic> data, int size) {
     '${size}_قیمت',
   ];
 
-  for (final key in possibleKeys) {
+  for (final key in keys) {
     if (data[key] != null) return data[key];
   }
 
@@ -200,14 +201,11 @@ String productField(
   String persianKey, [
   String fallback = '',
 ]) {
-  return readText(
-    data[englishKey] ?? data[persianKey],
-    fallback,
-  );
+  return readText(data[englishKey] ?? data[persianKey], fallback);
 }
 
 // =====================================================
-// ورود و ثبت نام
+// کنترل ورود مدیر
 // =====================================================
 
 class AuthGate extends StatelessWidget {
@@ -224,12 +222,59 @@ class AuthGate extends StatelessWidget {
           );
         }
 
-        if (snapshot.hasData) return const HomePage();
-        return const AuthPage();
+        final user = snapshot.data;
+
+        if (user == null) {
+          return const AuthPage();
+        }
+
+        if (user.uid == adminUid) {
+          return const HomePage();
+        }
+
+        return const RejectNonAdminPage();
       },
     );
   }
 }
+
+class RejectNonAdminPage extends StatefulWidget {
+  const RejectNonAdminPage({super.key});
+
+  @override
+  State<RejectNonAdminPage> createState() => _RejectNonAdminPageState();
+}
+
+class _RejectNonAdminPageState extends State<RejectNonAdminPage> {
+  @override
+  void initState() {
+    super.initState();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await auth.signOut();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('این حساب اجازه ورود به مدیریت فیدل را ندارد.'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// =====================================================
+// صفحه ورود مدیر
+// =====================================================
 
 class AuthPage extends StatefulWidget {
   const AuthPage({super.key});
@@ -241,41 +286,16 @@ class AuthPage extends StatefulWidget {
 class _AuthPageState extends State<AuthPage> {
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
-  final phoneController = TextEditingController();
-  final codeController = TextEditingController();
 
-  bool customerMode = true;
   bool loading = false;
   bool obscurePassword = true;
-  bool codeSent = false;
-
-  String verificationId = '';
-  int? resendToken;
 
   void message(String value) {
     if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(value)),
     );
-  }
-
-  String normalizePhone(String input) {
-    String phone = normalizeDigits(input.trim());
-    phone = phone.replaceAll(' ', '').replaceAll('-', '');
-
-    if (phone.startsWith('09') && phone.length == 11) {
-      return '+98${phone.substring(1)}';
-    }
-
-    if (phone.startsWith('9') && phone.length == 10) {
-      return '+98$phone';
-    }
-
-    if (phone.startsWith('0098')) {
-      return '+${phone.substring(2)}';
-    }
-
-    return phone;
   }
 
   String authError(FirebaseAuthException e) {
@@ -286,21 +306,13 @@ class _AuthPageState extends State<AuthPage> {
         return 'حساب کاربری پیدا نشد.';
       case 'wrong-password':
       case 'invalid-credential':
-        return 'اطلاعات ورود اشتباه است.';
+        return 'ایمیل یا رمز عبور اشتباه است.';
       case 'too-many-requests':
         return 'تعداد تلاش‌ها زیاد است. کمی بعد امتحان کنید.';
       case 'network-request-failed':
         return 'اتصال اینترنت را بررسی کنید.';
-      case 'invalid-phone-number':
-        return 'شماره موبایل معتبر نیست.';
-      case 'invalid-verification-code':
-        return 'کد پیامکی اشتباه است.';
-      case 'session-expired':
-        return 'کد پیامکی منقضی شده است.';
-      case 'quota-exceeded':
-        return 'سهمیه ارسال پیامک تمام شده است.';
-      case 'operation-not-allowed':
-        return 'ورود پیامکی در فایربیس فعال نیست.';
+      case 'user-disabled':
+        return 'این حساب کاربری غیرفعال شده است.';
       default:
         return 'خطا: ${e.message ?? e.code}';
     }
@@ -325,93 +337,12 @@ class _AuthPageState extends State<AuthPage> {
 
       if (result.user?.uid != adminUid) {
         await auth.signOut();
-        message('این بخش فقط مخصوص مدیر فیدل است.');
+        message('این حساب اجازه ورود به مدیریت فیدل را ندارد.');
       }
     } on FirebaseAuthException catch (e) {
       message(authError(e));
-    } catch (_) {
-      message('خطای غیرمنتظره رخ داد.');
-    } finally {
-      if (mounted) setState(() => loading = false);
-    }
-  }
-
-  Future<void> sendSms() async {
-    final phone = normalizePhone(phoneController.text);
-
-    if (!phone.startsWith('+') || phone.length < 10) {
-      message('شماره موبایل را صحیح وارد کنید.');
-      return;
-    }
-
-    setState(() {
-      loading = true;
-      codeSent = false;
-    });
-
-    try {
-      await auth.verifyPhoneNumber(
-        phoneNumber: phone,
-        timeout: const Duration(seconds: 60),
-        forceResendingToken: resendToken,
-        verificationCompleted: (PhoneAuthCredential credential) async {
-          try {
-            await auth.signInWithCredential(credential);
-          } on FirebaseAuthException catch (e) {
-            message(authError(e));
-          } finally {
-            if (mounted) setState(() => loading = false);
-          }
-        },
-        verificationFailed: (FirebaseAuthException e) {
-          if (!mounted) return;
-          setState(() => loading = false);
-          message(authError(e));
-        },
-        codeSent: (String id, int? token) {
-          if (!mounted) return;
-          setState(() {
-            verificationId = id;
-            resendToken = token;
-            codeSent = true;
-            loading = false;
-          });
-          message('کد تأیید ارسال شد.');
-        },
-        codeAutoRetrievalTimeout: (String id) {
-          verificationId = id;
-        },
-      );
-    } on FirebaseAuthException catch (e) {
-      message(authError(e));
-      if (mounted) setState(() => loading = false);
-    } catch (_) {
-      message('ارسال پیامک با خطا روبه‌رو شد.');
-      if (mounted) setState(() => loading = false);
-    }
-  }
-
-  Future<void> verifySmsCode() async {
-    final code = normalizeDigits(codeController.text.trim());
-
-    if (code.length != 6) {
-      message('کد شش رقمی را وارد کنید.');
-      return;
-    }
-
-    setState(() => loading = true);
-
-    try {
-      final credential = PhoneAuthProvider.credential(
-        verificationId: verificationId,
-        smsCode: code,
-      );
-
-      await auth.signInWithCredential(credential);
-    } on FirebaseAuthException catch (e) {
-      message(authError(e));
-    } catch (_) {
-      message('بررسی کد با خطا روبه‌رو شد.');
+    } catch (e) {
+      message('خطای غیرمنتظره رخ داد: $e');
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -437,8 +368,6 @@ class _AuthPageState extends State<AuthPage> {
   void dispose() {
     emailController.dispose();
     passwordController.dispose();
-    phoneController.dispose();
-    codeController.dispose();
     super.dispose();
   }
 
@@ -466,149 +395,64 @@ class _AuthPageState extends State<AuthPage> {
                     ),
                     const SizedBox(height: 12),
                     const Text(
-                      'فروشگاه تشک فیدل',
+                      'مدیریت فیدل',
                       style: TextStyle(
                         fontSize: 23,
                         fontWeight: FontWeight.bold,
                         color: fidelBlue,
                       ),
                     ),
-                    const SizedBox(height: 20),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: FilledButton(
-                            onPressed: loading
-                                ? null
-                                : () => setState(() {
-                                      customerMode = true;
-                                      codeSent = false;
-                                    }),
-                            child: const Text('ورود مشتری'),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: loading
-                                ? null
-                                : () => setState(() {
-                                      customerMode = false;
-                                    }),
-                            child: const Text('ورود مدیر'),
-                          ),
-                        ),
-                      ],
+                    const SizedBox(height: 8),
+                    const Text('ورود مخصوص مدیر اصلی'),
+                    const SizedBox(height: 24),
+                    TextField(
+                      controller: emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: const InputDecoration(
+                        labelText: 'ایمیل مدیر',
+                        prefixIcon: Icon(Icons.email_outlined),
+                        border: OutlineInputBorder(),
+                      ),
                     ),
-                    const SizedBox(height: 22),
-                    if (customerMode) ...[
-                      const Text(
-                        'ورود با شماره موبایل',
-                        style: TextStyle(fontSize: 18),
-                      ),
-                      const SizedBox(height: 14),
-                      TextField(
-                        controller: phoneController,
-                        keyboardType: TextInputType.phone,
-                        decoration: const InputDecoration(
-                          labelText: 'شماره موبایل',
-                          hintText: '09123456789',
-                          prefixIcon: Icon(Icons.phone_android),
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      if (codeSent) ...[
-                        const SizedBox(height: 14),
-                        TextField(
-                          controller: codeController,
-                          keyboardType: TextInputType.number,
-                          maxLength: 6,
-                          decoration: const InputDecoration(
-                            labelText: 'کد پیامکی',
-                            prefixIcon: Icon(Icons.sms_outlined),
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 18),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 50,
-                        child: FilledButton(
-                          onPressed: loading
-                              ? null
-                              : codeSent
-                                  ? verifySmsCode
-                                  : sendSms,
-                          child: loading
-                              ? const CircularProgressIndicator(
-                                  color: Colors.white,
-                                )
-                              : Text(
-                                  codeSent
-                                      ? 'تأیید کد و ورود'
-                                      : 'ارسال کد پیامکی',
-                                ),
-                        ),
-                      ),
-                      if (codeSent)
-                        TextButton(
-                          onPressed: loading ? null : sendSms,
-                          child: const Text('ارسال دوباره کد'),
-                        ),
-                    ] else ...[
-                      const Text(
-                        'ورود مدیر فیدل',
-                        style: TextStyle(fontSize: 18),
-                      ),
-                      const SizedBox(height: 14),
-                      TextField(
-                        controller: emailController,
-                        keyboardType: TextInputType.emailAddress,
-                        decoration: const InputDecoration(
-                          labelText: 'ایمیل مدیر',
-                          prefixIcon: Icon(Icons.email_outlined),
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      TextField(
-                        controller: passwordController,
-                        obscureText: obscurePassword,
-                        decoration: InputDecoration(
-                          labelText: 'رمز عبور',
-                          prefixIcon: const Icon(Icons.lock_outline),
-                          border: const OutlineInputBorder(),
-                          suffixIcon: IconButton(
-                            onPressed: () => setState(
-                              () => obscurePassword = !obscurePassword,
-                            ),
-                            icon: Icon(
-                              obscurePassword
-                                  ? Icons.visibility
-                                  : Icons.visibility_off,
-                            ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: passwordController,
+                      obscureText: obscurePassword,
+                      decoration: InputDecoration(
+                        labelText: 'رمز عبور',
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          onPressed: () {
+                            setState(() {
+                              obscurePassword = !obscurePassword;
+                            });
+                          },
+                          icon: Icon(
+                            obscurePassword
+                                ? Icons.visibility
+                                : Icons.visibility_off,
                           ),
                         ),
                       ),
-                      const SizedBox(height: 18),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 50,
-                        child: FilledButton(
-                          onPressed: loading ? null : adminLogin,
-                          child: loading
-                              ? const CircularProgressIndicator(
-                                  color: Colors.white,
-                                )
-                              : const Text('ورود مدیر'),
-                        ),
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: FilledButton(
+                        onPressed: loading ? null : adminLogin,
+                        child: loading
+                            ? const CircularProgressIndicator(
+                                color: Colors.white,
+                              )
+                            : const Text('ورود به مدیریت'),
                       ),
-                      TextButton(
-                        onPressed: loading ? null : resetPassword,
-                        child: const Text('فراموشی رمز عبور'),
-                      ),
-                    ],
+                    ),
+                    TextButton(
+                      onPressed: loading ? null : resetPassword,
+                      child: const Text('فراموشی رمز عبور'),
+                    ),
                     const Divider(height: 28),
                     const Text(
                       'کیفیت رمز ماندگاریست',
@@ -629,7 +473,7 @@ class _AuthPageState extends State<AuthPage> {
 }
 
 // =====================================================
-// اطلاعات شعب
+// اطلاعات اولیه شعب
 // =====================================================
 
 final List<Map<String, dynamic>> defaultBranches = [
@@ -669,7 +513,7 @@ final List<Map<String, dynamic>> defaultBranches = [
 ];
 
 // =====================================================
-// صفحه اصلی
+// صفحه اصلی مدیریت
 // =====================================================
 
 class HomePage extends StatefulWidget {
@@ -681,8 +525,6 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int tab = 0;
-
-  bool get isAdmin => auth.currentUser?.uid == adminUid;
 
   Future<void> signOut() async {
     await auth.signOut();
@@ -710,39 +552,14 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    if (auth.currentUser?.uid != adminUid) {
+      return const AuthPage();
+    }
+
     final pages = <Widget>[
-      BranchesPage(isAdmin: isAdmin),
-      const CatalogPage(),
-      const AssistantPage(),
-      const OrdersPage(),
-      if (isAdmin) const ProductManagementPage(),
+      const BranchesPage(isAdmin: true),
+      const ProductManagementPage(),
     ];
-
-    final destinations = <NavigationDestination>[
-      const NavigationDestination(
-        icon: Icon(Icons.store_outlined),
-        label: 'شعب و نمایندگی',
-      ),
-      const NavigationDestination(
-        icon: Icon(Icons.bed_outlined),
-        label: 'محصولات',
-      ),
-      const NavigationDestination(
-        icon: Icon(Icons.chat_bubble_outline),
-        label: 'مشاور هوشمند',
-      ),
-      const NavigationDestination(
-        icon: Icon(Icons.receipt_long_outlined),
-        label: 'سفارش‌ها',
-      ),
-      if (isAdmin)
-        const NavigationDestination(
-          icon: Icon(Icons.inventory_2_outlined),
-          label: 'مدیریت کالا',
-        ),
-    ];
-
-    if (tab >= pages.length) tab = 0;
 
     return Scaffold(
       appBar: AppBar(
@@ -757,7 +574,7 @@ class _HomePageState extends State<HomePage> {
             ),
             const SizedBox(width: 8),
             const Text(
-              'فیدل',
+              'مدیریت فیدل',
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
           ],
@@ -770,291 +587,51 @@ class _HomePageState extends State<HomePage> {
           ),
           IconButton(
             onPressed: signOut,
-            tooltip: 'خروج',
+            tooltip: 'خروج از حساب',
             icon: const Icon(Icons.logout),
           ),
         ],
       ),
       body: Column(
         children: [
-          if (isAdmin)
-            Container(
-              width: double.infinity,
-              color: const Color(0xFFE8EEF5),
-              padding: const EdgeInsets.all(8),
-              child: const Text(
-                'حساب مدیر فیدل',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: fidelBlue,
-                  fontWeight: FontWeight.bold,
-                ),
+          Container(
+            width: double.infinity,
+            color: const Color(0xFFE8EEF5),
+            padding: const EdgeInsets.all(9),
+            child: const Text(
+              'حساب مدیر اصلی فیدل',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: fidelBlue,
+                fontWeight: FontWeight.bold,
               ),
             ),
+          ),
           Expanded(child: pages[tab]),
         ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
-        onDestinationSelected: (v) => setState(() => tab = v),
-        destinations: destinations,
+        onDestinationSelected: (value) {
+          setState(() => tab = value);
+        },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.store_outlined),
+            label: 'مدیریت شعب',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.inventory_2_outlined),
+            label: 'مدیریت کالا',
+          ),
+        ],
       ),
     );
   }
 }
 
 // =====================================================
-// کاتالوگ محصولات مشتری
-// =====================================================
-
-class CatalogPage extends StatefulWidget {
-  const CatalogPage({super.key});
-
-  @override
-  State<CatalogPage> createState() => _CatalogPageState();
-}
-
-class _CatalogPageState extends State<CatalogPage> {
-  String tier = 'ECONOMY';
-  int size = 160;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(12),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: fidelBlue,
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'خواب راحت، انتخاب مطمئن',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                SizedBox(height: 6),
-                Text(
-                  'مدل مناسب خودتان را از میان تشک‌های فیدل پیدا کنید',
-                  style: TextStyle(color: Colors.white70),
-                ),
-              ],
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(
-            children: [
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  value: tier,
-                  decoration: const InputDecoration(
-                    labelText: 'گروه محصول',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'ECONOMY',
-                      child: Text('اکونومی'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'PLUS',
-                      child: Text('پلاس'),
-                    ),
-                  ],
-                  onChanged: (v) {
-                    if (v != null) setState(() => tier = v);
-                  },
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: DropdownButtonFormField<int>(
-                  value: size,
-                  decoration: const InputDecoration(
-                    labelText: 'ابعاد تشک',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: productSizes
-                      .map(
-                        (v) => DropdownMenuItem(
-                          value: v,
-                          child: Text('${sizeLabel(v)} سانتی‌متر'),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (v) {
-                    if (v != null) setState(() => size = v);
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        Expanded(
-          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: db.collection('products').snapshots(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
-              if (snapshot.hasError) {
-                return Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Text(
-                      'دریافت محصولات با خطا روبه‌رو شد.\n${snapshot.error}',
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                );
-              }
-
-              final docs = snapshot.data?.docs ?? [];
-
-              final filtered = docs.where((doc) {
-                final data = doc.data();
-                final category = normalizeCategory(
-                  data['category'] ?? data['دسته‌بندی'],
-                  doc.id,
-                );
-
-                if (category != tier) return false;
-
-                if (size == 70) {
-                  final name = productName(data, doc.id);
-                  if (!name.contains('آسوده')) return false;
-                }
-
-                return true;
-              }).toList();
-
-              if (filtered.isEmpty) {
-                return const Center(
-                  child: Text('محصولی در این گروه پیدا نشد.'),
-                );
-              }
-
-              return ListView.builder(
-                padding: const EdgeInsets.all(12),
-                itemCount: filtered.length,
-                itemBuilder: (context, index) {
-                  final doc = filtered[index];
-                  final data = doc.data();
-
-                  final name = productName(data, doc.id);
-                  final warranty = productField(
-                    data,
-                    'warranty',
-                    'ضمانت',
-                    'ثبت نشده',
-                  );
-                  final type = productField(
-                    data,
-                    'type',
-                    'نوع',
-                    productField(
-                      data,
-                      'features',
-                      'ویژگی‌ها',
-                      'تشک فیدل',
-                    ),
-                  );
-                  final price = findPrice(data, size);
-
-                  final height = productField(
-                    data,
-                    'height',
-                    'ارتفاع',
-                    productField(data, 'thickness', 'ضخامت'),
-                  );
-
-                  final description = productField(
-                    data,
-                    'description',
-                    'توضیحات',
-                  );
-
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    child: ExpansionTile(
-                      leading: ProductImageWidget(
-                        productId: doc.id,
-                      ),
-                      title: Text(
-                        name,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      subtitle: Text('$type\nضمانت: $warranty'),
-                      trailing: Text(
-                        price == null
-                            ? 'استعلام'
-                            : '${formatPrice(price)} تومان',
-                        style: const TextStyle(
-                          color: fidelBlue,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.only(top: 14),
-                          child: Center(
-                            child: ProductImageWidget(
-                              productId: doc.id,
-                              width: 220,
-                              height: 160,
-                              showPlaceholder: false,
-                            ),
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.all(14),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('ابعاد انتخابی: ${sizeLabel(size)}'),
-                              const SizedBox(height: 6),
-                              if (height.isNotEmpty)
-                                Text('ارتفاع: $height'),
-                              if (description.isNotEmpty) ...[
-                                const SizedBox(height: 6),
-                                Text(description),
-                              ],
-                              const SizedBox(height: 8),
-                              Text('نوع تشک: $type'),
-                              Text('مدت ضمانت: $warranty'),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// =====================================================
-// مدیریت محصولات - فقط مدیر
+// مدیریت محصولات
 // =====================================================
 
 class ProductManagementPage extends StatelessWidget {
@@ -1445,6 +1022,7 @@ class _ProductEditorDialogState extends State<ProductEditorDialog> {
 
   void showMessage(String value) {
     if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(value)),
     );
@@ -1483,21 +1061,25 @@ class _ProductEditorDialogState extends State<ProductEditorDialog> {
 
         if (priceText.isNotEmpty) {
           final price = parseNumber(priceText);
+
           if (price == null || price < 0) {
             showMessage('قیمت سایز ${sizeLabel(size)} معتبر نیست.');
             setState(() => saving = false);
             return;
           }
+
           updateData['price_$size'] = price;
         }
 
         if (quantityText.isNotEmpty) {
           final quantity = parseNumber(quantityText);
+
           if (quantity == null || quantity < 0) {
             showMessage('موجودی سایز ${sizeLabel(size)} معتبر نیست.');
             setState(() => saving = false);
             return;
           }
+
           updateData['quantity_$size'] = quantity;
         }
       }
@@ -1517,6 +1099,7 @@ class _ProductEditorDialogState extends State<ProductEditorDialog> {
       if (mounted) {
         final messenger = ScaffoldMessenger.of(context);
         Navigator.pop(context);
+
         messenger.showSnackBar(
           SnackBar(
             content: Text(
@@ -1762,6 +1345,8 @@ class BranchesPage extends StatelessWidget {
   const BranchesPage({super.key, required this.isAdmin});
 
   Future<void> saveDefaultBranches(BuildContext context) async {
+    if (auth.currentUser?.uid != adminUid) return;
+
     try {
       for (final branch in defaultBranches) {
         final id = branch['id'] as String;
@@ -1795,12 +1380,16 @@ class BranchesPage extends StatelessWidget {
     String? id,
     Map<String, dynamic>? oldData,
   }) async {
+    if (auth.currentUser?.uid != adminUid) return;
+
     final nameController = TextEditingController(
       text: readText(oldData?['name']),
     );
+
     final addressController = TextEditingController(
       text: readText(oldData?['address']),
     );
+
     final phonesController = TextEditingController(
       text: (oldData?['phones'] as List? ?? []).join('\n'),
     );
@@ -1854,6 +1443,7 @@ class BranchesPage extends StatelessWidget {
     if (result == true) {
       final name = nameController.text.trim();
       final address = addressController.text.trim();
+
       final phones = phonesController.text
           .split('\n')
           .map((e) => e.trim())
@@ -1904,19 +1494,29 @@ class BranchesPage extends StatelessWidget {
     String id,
     bool active,
   ) async {
+    if (auth.currentUser?.uid != adminUid) return;
+
     try {
       await db.collection('branches').doc(id).update({
         'active': !active,
       });
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('خطا در تغییر وضعیت: $e')),
-      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('خطا در تغییر وضعیت: $e')),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (auth.currentUser?.uid != adminUid) {
+      return const Center(
+        child: Text('دسترسی به این بخش مجاز نیست.'),
+      );
+    }
+
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: db.collection('branches').snapshots(),
       builder: (context, snapshot) {
@@ -1946,17 +1546,15 @@ class BranchesPage extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               const Text(
-                'اطلاعات اولیه شعب در برنامه آماده است. '
-                'برای ذخیره و مدیریت آن‌ها در پایگاه داده، مدیر باید '
-                'دکمه زیر را بزند.',
+                'اطلاعات اولیه شعب آماده است. '
+                'برای ثبت آن‌ها در پایگاه داده، دکمه زیر را بزنید.',
               ),
               const SizedBox(height: 14),
-              if (isAdmin)
-                FilledButton.icon(
-                  onPressed: () => saveDefaultBranches(context),
-                  icon: const Icon(Icons.save),
-                  label: const Text('ثبت شعب اولیه در فایربیس'),
-                ),
+              FilledButton.icon(
+                onPressed: () => saveDefaultBranches(context),
+                icon: const Icon(Icons.save),
+                label: const Text('ثبت شعب اولیه در فایربیس'),
+              ),
               const SizedBox(height: 16),
               ...defaultBranches.map(
                 (branch) => Card(
@@ -1975,11 +1573,6 @@ class BranchesPage extends StatelessWidget {
           );
         }
 
-        final visibleDocs = docs.where((doc) {
-          final active = doc.data()['active'] == true;
-          return isAdmin || active;
-        }).toList();
-
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
@@ -1991,25 +1584,17 @@ class BranchesPage extends StatelessWidget {
                 color: fidelBlue,
               ),
             ),
-            if (isAdmin) ...[
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: () => editBranch(context),
-                icon: const Icon(Icons.add),
-                label: const Text('افزودن شعبه یا نمایندگی'),
-              ),
-            ],
             const SizedBox(height: 12),
-            if (visibleDocs.isEmpty)
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(20),
-                  child: Text('در حال حاضر شعبه فعالی ثبت نشده است.'),
-                ),
-              ),
-            ...visibleDocs.map((doc) {
+            FilledButton.icon(
+              onPressed: () => editBranch(context),
+              icon: const Icon(Icons.add),
+              label: const Text('افزودن شعبه یا نمایندگی'),
+            ),
+            const SizedBox(height: 12),
+            ...docs.map((doc) {
               final data = doc.data();
               final active = data['active'] == true;
+
               final phones = (data['phones'] as List? ?? [])
                   .map((e) => e.toString())
                   .join(' - ');
@@ -2040,38 +1625,36 @@ class BranchesPage extends StatelessWidget {
                           Text(readText(data['address'])),
                           const SizedBox(height: 10),
                           Text('شماره تماس: $phones'),
-                          if (isAdmin) ...[
-                            const Divider(),
-                            Wrap(
-                              spacing: 8,
-                              children: [
-                                TextButton.icon(
-                                  onPressed: () => editBranch(
-                                    context,
-                                    id: doc.id,
-                                    oldData: data,
-                                  ),
-                                  icon: const Icon(Icons.edit),
-                                  label: const Text('ویرایش'),
+                          const Divider(),
+                          Wrap(
+                            spacing: 8,
+                            children: [
+                              TextButton.icon(
+                                onPressed: () => editBranch(
+                                  context,
+                                  id: doc.id,
+                                  oldData: data,
                                 ),
-                                TextButton.icon(
-                                  onPressed: () => toggleBranch(
-                                    context,
-                                    doc.id,
-                                    active,
-                                  ),
-                                  icon: Icon(
-                                    active
-                                        ? Icons.visibility_off
-                                        : Icons.visibility,
-                                  ),
-                                  label: Text(
-                                    active ? 'غیرفعال کردن' : 'فعال کردن',
-                                  ),
+                                icon: const Icon(Icons.edit),
+                                label: const Text('ویرایش'),
+                              ),
+                              TextButton.icon(
+                                onPressed: () => toggleBranch(
+                                  context,
+                                  doc.id,
+                                  active,
                                 ),
-                              ],
-                            ),
-                          ],
+                                icon: Icon(
+                                  active
+                                      ? Icons.visibility_off
+                                      : Icons.visibility,
+                                ),
+                                label: Text(
+                                  active ? 'غیرفعال کردن' : 'فعال کردن',
+                                ),
+                              ),
+                            ],
+                          ),
                         ],
                       ),
                     ),
@@ -2082,474 +1665,6 @@ class BranchesPage extends StatelessWidget {
           ],
         );
       },
-    );
-  }
-}
-
-// =====================================================
-// مشاور هوشمند
-// =====================================================
-
-class AssistantPage extends StatefulWidget {
-  const AssistantPage({super.key});
-
-  @override
-  State<AssistantPage> createState() => _AssistantPageState();
-}
-
-class _AssistantPageState extends State<AssistantPage> {
-  final controller = TextEditingController();
-  final scrollController = ScrollController();
-
-  final messages = <String>[
-    'سلام، به مشاور فیدل خوش آمدید 🌹\n'
-    'برای شروع، وزن تقریبی استفاده‌کنندگان و ابعاد تشک موردنظر را بگویید.\n'
-    'مثلاً: وزن ۸۵ کیلوگرم، تشک ۱۶۰ در ۲۰۰',
-  ];
-
-  final answers = <String>[];
-
-  int step = 0;
-  int size = 160;
-  bool loading = false;
-
-  void addMessage(String value) {
-    if (!mounted) return;
-
-    setState(() => messages.add(value));
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (scrollController.hasClients) {
-        scrollController.animateTo(
-          scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      }
-    });
-  }
-
-  void detectSize(String value) {
-    final text = normalizeDigits(value);
-
-    if (text.contains('70') || text.contains('۷۰')) {
-      size = 70;
-    } else if (text.contains('80')) {
-      size = 80;
-    } else if (text.contains('90')) {
-      size = 90;
-    } else if (text.contains('120')) {
-      size = 120;
-    } else if (text.contains('140')) {
-      size = 140;
-    } else if (text.contains('180')) {
-      size = 180;
-    } else if (text.contains('160')) {
-      size = 160;
-    }
-  }
-
-  String normalizeName(String value) {
-    return value
-        .toLowerCase()
-        .replaceAll('ي', 'ی')
-        .replaceAll('ك', 'ک')
-        .replaceAll('‌', '')
-        .replaceAll(' ', '')
-        .replaceAll('-', '')
-        .replaceAll('_', '');
-  }
-
-  bool isFullMedical(String name) {
-    final n = normalizeName(name);
-
-    return n.contains('مدیکال') ||
-        n.contains('medical') ||
-        n.contains('پلیتاپ') ||
-        n.contains('polytop');
-  }
-
-  bool isSevereDisc(String value) {
-    final text = value.toLowerCase();
-
-    return text.contains('حاد') ||
-        text.contains('شدید') ||
-        text.contains('فتق دیسک') ||
-        text.contains('جراحی دیسک') ||
-        text.contains('عمل دیسک') ||
-        text.contains('عمل جراحی کمر') ||
-        text.contains('بعد از عمل');
-  }
-
-  bool hasBackProblem(String value) {
-    final text = value.toLowerCase();
-
-    return text.contains('دیسک') ||
-        text.contains('سیاتیک') ||
-        text.contains('کمردرد') ||
-        text.contains('کمر درد') ||
-        text.contains('گودی کمر') ||
-        text.contains('مهره');
-  }
-
-  void send() {
-    final value = controller.text.trim();
-    if (value.isEmpty || loading) return;
-
-    controller.clear();
-    addMessage('شما: $value');
-
-    if (step == 0) {
-      answers.add(value);
-      detectSize(value);
-
-      addMessage(
-        'سؤال دوم: معمولاً به چه حالتی می‌خوابید؟ '
-        'به پهلو، به پشت یا روی شکم؟',
-      );
-      step = 1;
-    } else if (step == 1) {
-      answers.add(value);
-      addMessage('سؤال سوم: تشک را سفت، متوسط یا نرم می‌پسندید؟');
-      step = 2;
-    } else if (step == 2) {
-      answers.add(value);
-      addMessage(
-        'سؤال چهارم: آیا کمردرد، دیسک کمر، سیاتیک یا مشکل پزشکی دارید؟ '
-        'اگر دارید، شدت آن را توضیح دهید.',
-      );
-      step = 3;
-    } else if (step == 3) {
-      answers.add(value);
-      step = 4;
-      recommend();
-    } else {
-      addMessage('برای مشاوره جدید، صفحه مشاور را دوباره باز کنید.');
-    }
-  }
-
-  int productScore(
-    String name,
-    String type,
-    String position,
-    String firmness,
-    bool hasDisc,
-  ) {
-    int score = 0;
-
-    final n = normalizeName(name);
-    final t = normalizeName(type);
-
-    if (n.contains('تاپ') || n.contains('top')) score += 10;
-    if (n.contains('المپیک')) score += 10;
-    if (n.contains('مدیکال') || n.contains('medical')) score += 12;
-    if (n.contains('پلیتاپ') || n.contains('polytop')) score += 10;
-
-    if (firmness.contains('سفت')) {
-      if (t.contains('میکرو') || t.contains('بدونفنر')) score += 5;
-      if (t.contains('پاکتی')) score -= 5;
-    }
-
-    if (firmness.contains('نرم') && t.contains('پاکتی')) {
-      score += 5;
-    }
-
-    if (position.contains('پهلو')) {
-      if (n.contains('آرامش') || n.contains('کلاسیک')) score += 3;
-    }
-
-    if (hasDisc && t.contains('پاکتی')) score -= 5;
-
-    return score;
-  }
-
-  Future<void> recommend() async {
-    if (answers.length < 4) return;
-
-    final weight = answers[0];
-    final position = answers[1];
-    final firmness = answers[2];
-    final health = answers[3];
-
-    final severeDisc = isSevereDisc(health);
-    final backProblem = hasBackProblem(health);
-
-    setState(() => loading = true);
-    addMessage('در حال بررسی محصولات فیدل و دریافت قیمت‌ها از پایگاه داده...');
-
-    try {
-      final snapshot = await db.collection('products').get();
-
-      if (!mounted) return;
-
-      final products = snapshot.docs.map((doc) {
-        return {
-          'id': doc.id,
-          ...doc.data(),
-        };
-      }).toList();
-
-      if (products.isEmpty) {
-        addMessage('در حال حاضر محصولی در پایگاه داده فیدل ثبت نشده است.');
-        return;
-      }
-
-      final fullMedical = products.where((p) {
-        final name = productName(p, readText(p['id']));
-        return isFullMedical(name);
-      }).toList();
-
-      products.sort((a, b) {
-        final nameA = productName(a, readText(a['id']));
-        final nameB = productName(b, readText(b['id']));
-
-        final typeA = readText(a['type'], readText(a['features']));
-        final typeB = readText(b['type'], readText(b['features']));
-
-        final scoreA = productScore(
-          nameA,
-          typeA,
-          position,
-          firmness,
-          backProblem,
-        );
-
-        final scoreB = productScore(
-          nameB,
-          typeB,
-          position,
-          firmness,
-          backProblem,
-        );
-
-        return scoreB.compareTo(scoreA);
-      });
-
-      if (severeDisc && fullMedical.isNotEmpty) {
-        products.removeWhere((p) {
-          final name = productName(p, readText(p['id']));
-          return isFullMedical(name);
-        });
-
-        products.insertAll(0, fullMedical);
-      }
-
-      final result = StringBuffer();
-
-      result.writeln('نتیجه بررسی پاسخ‌های شما 🌹\n');
-      result.writeln('وزن اعلام‌شده: $weight');
-      result.writeln('حالت خواب: $position');
-      result.writeln('میزان سفتی دلخواه: $firmness');
-      result.writeln('وضعیت اعلام‌شده: $health');
-      result.writeln('ابعاد انتخابی: ${sizeLabel(size)}\n');
-
-      if (severeDisc) {
-        result.writeln(
-          'با توجه به اعلام دیسک شدید یا سابقه جراحی، '
-          'مدل‌های طبی کامل فیدل در اولویت بررسی قرار می‌گیرند.\n',
-        );
-
-        if (fullMedical.isEmpty) {
-          result.writeln(
-            'در اطلاعات فعلی فایربیس، محصولی با نام مدیکال یا پلی‌تاپ پیدا نشد.\n',
-          );
-        }
-      } else if (backProblem) {
-        result.writeln(
-          'با توجه به مشکل کمر اعلام‌شده، محصولات با سطح مناسب و '
-          'ساختار پشتیبانی‌کننده برای بررسی در اولویت قرار گرفته‌اند.\n',
-        );
-      }
-
-      result.writeln('محصولات پیشنهادی از کاتالوگ فیدل:\n');
-
-      int shown = 0;
-
-      for (final p in products) {
-        if (shown >= 12) break;
-
-        final id = readText(p['id']);
-        final name = productName(p, id);
-        final warranty = productField(
-          p,
-          'warranty',
-          'ضمانت',
-          'ثبت نشده',
-        );
-        final type = productField(
-          p,
-          'type',
-          'نوع',
-          productField(p, 'features', 'ویژگی‌ها', 'ثبت نشده'),
-        );
-
-        final price = findPrice(p, size);
-        final height = productField(
-          p,
-          'height',
-          'ارتفاع',
-          productField(p, 'thickness', 'ضخامت'),
-        );
-
-        final description = productField(
-          p,
-          'description',
-          'توضیحات',
-        );
-
-        result.writeln('مدل: $name');
-        result.writeln('نوع ساخت: $type');
-        result.writeln('ضمانت: $warranty');
-        result.writeln(
-          'قیمت سایز ${sizeLabel(size)}: '
-          '${price == null ? 'استعلام' : '${formatPrice(price)} تومان'}',
-        );
-
-        if (height.isNotEmpty) result.writeln('ارتفاع: $height');
-        if (description.isNotEmpty) {
-          result.writeln('توضیحات: $description');
-        }
-
-        result.writeln('');
-        shown++;
-      }
-
-      result.writeln(
-        'قیمت‌ها از اطلاعات ثبت‌شده محصولات در فایربیس خوانده شده‌اند. '
-        'اگر قیمت سایز انتخابی ثبت نشده باشد، عبارت استعلام نمایش داده می‌شود.\n\n'
-        'نکته مهم پزشکی: این مشاوره تشخیص یا درمان پزشکی نیست و '
-        'هیچ تشکی درمان دیسک یا کمردرد را تضمین نمی‌کند. '
-        'در صورت دیسک شدید، جراحی یا درد منتشرشونده به پا، '
-        'انتخاب تشک باید با نظر پزشک معالج انجام شود. '
-        'بهتر است پیش از خرید، تشک را حضوری امتحان کنید.',
-      );
-
-      addMessage(result.toString());
-    } catch (e) {
-      addMessage(
-        'دریافت اطلاعات محصولات با خطا روبه‌رو شد.\n'
-        'لطفاً اتصال اینترنت و دسترسی فایربیس را بررسی کنید.\n$e',
-      );
-    } finally {
-      if (mounted) setState(() => loading = false);
-    }
-  }
-
-  @override
-  void dispose() {
-    controller.dispose();
-    scrollController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Expanded(
-          child: ListView.builder(
-            controller: scrollController,
-            padding: const EdgeInsets.all(16),
-            itemCount: messages.length,
-            itemBuilder: (context, index) {
-              final isUser = messages[index].startsWith('شما:');
-
-              return Align(
-                alignment: isUser
-                    ? Alignment.centerLeft
-                    : Alignment.centerRight,
-                child: Container(
-                  margin: const EdgeInsets.only(bottom: 10),
-                  padding: const EdgeInsets.all(14),
-                  constraints: const BoxConstraints(maxWidth: 340),
-                  decoration: BoxDecoration(
-                    color: isUser
-                        ? fidelBlue
-                        : const Color(0xFFE8EEF5),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Text(
-                    messages[index],
-                    style: TextStyle(
-                      color: isUser ? Colors.white : Colors.black87,
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        if (loading)
-          const Padding(
-            padding: EdgeInsets.only(bottom: 8),
-            child: LinearProgressIndicator(),
-          ),
-        SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: controller,
-                    enabled: !loading,
-                    decoration: const InputDecoration(
-                      hintText: 'پاسخ خود را بنویسید...',
-                      border: OutlineInputBorder(),
-                    ),
-                    onSubmitted: (_) => send(),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton.filled(
-                  onPressed: loading ? null : send,
-                  icon: const Icon(Icons.send),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// =====================================================
-// سفارش‌ها
-// =====================================================
-
-class OrdersPage extends StatelessWidget {
-  const OrdersPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Padding(
-        padding: EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.receipt_long_outlined,
-              size: 65,
-              color: fidelBlue,
-            ),
-            SizedBox(height: 16),
-            Text(
-              'سفارش‌های من',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            SizedBox(height: 10),
-            Text(
-              'در حال حاضر سفارشی ثبت نشده است.',
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
