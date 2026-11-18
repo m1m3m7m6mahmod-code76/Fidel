@@ -1,5 +1,5 @@
 
-name: Build Fidel APK
+name: Build Fidel Admin APK
 
 on:
   workflow_dispatch:
@@ -29,15 +29,15 @@ jobs:
           test -f pubspec.yaml
           test -f lib/main.dart
           test -f assets/logo.png
-          test -f android/app/google-services.json
+          test -f firebase/admin/google-services.json
           mkdir -p "$RUNNER_TEMP/fidel"
-          cp android/app/google-services.json "$RUNNER_TEMP/fidel/google-services.json"
+          cp firebase/admin/google-services.json "$RUNNER_TEMP/fidel/google-services.json"
           rm -rf android
 
       - name: Generate Android Project
         run: |
           set -e
-          flutter create --platforms=android --org com.fidel.app .
+          flutter create --platforms=android --org com.fidel.adminapp .
           mkdir -p android/app
           cp "$RUNNER_TEMP/fidel/google-services.json" android/app/google-services.json
 
@@ -56,8 +56,8 @@ jobs:
               if "android_client_info" in c.get("client_info", {})
           ]
 
-          if "com.fidel.app" not in packages:
-              raise SystemExit("Firebase package name must be com.fidel.app")
+          if "com.fidel.adminapp" not in packages:
+              raise SystemExit("Firebase package name must be com.fidel.adminapp")
 
           settings = Path("android/settings.gradle.kts")
           if not settings.exists():
@@ -100,28 +100,28 @@ jobs:
                   if path.suffix == ".kts":
                       content, count = re.subn(
                           r'applicationId\s*=\s*["\'][^"\']+["\']',
-                          'applicationId = "com.fidel.app"',
+                          'applicationId = "com.fidel.adminapp"',
                           content,
                           count=1
                       )
                       if count == 0:
                           content = re.sub(
                               r'defaultConfig\s*\{',
-                              'defaultConfig {\n        applicationId = "com.fidel.app"',
+                              'defaultConfig {\n        applicationId = "com.fidel.adminapp"',
                               content,
                               count=1
                           )
                   else:
                       content, count = re.subn(
                           r'applicationId\s+["\'][^"\']+["\']',
-                          'applicationId "com.fidel.app"',
+                          'applicationId "com.fidel.adminapp"',
                           content,
                           count=1
                       )
                       if count == 0:
                           content = re.sub(
                               r'defaultConfig\s*\{',
-                              'defaultConfig {\n        applicationId "com.fidel.app"',
+                              'defaultConfig {\n        applicationId "com.fidel.adminapp"',
                               content,
                               count=1
                           )
@@ -341,13 +341,13 @@ jobs:
       - name: Generate App Icon
         run: dart run flutter_launcher_icons
 
-      - name: Build Fidel APK
+      - name: Build Fidel Admin APK
         run: |
           flutter build apk --release
-          cp build/app/outputs/flutter-apk/app-release.apk "$GITHUB_WORKSPACE/fidel-release.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "$GITHUB_WORKSPACE/fidel-admin-release.apk"
 
-      - name: Upload APK
+      - name: Upload Admin APK
         uses: actions/upload-artifact@v4
         with:
-          name: fidel-android-apk
-          path: fidel-release.apk
+          name: fidel-admin-apk
+          path: fidel-admin-release.apk
