@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -48,7 +49,6 @@ String readText(dynamic value, [String fallback = '']) {
   return value.toString();
 }
 
-// تبدیل اعداد فارسی و عربی به انگلیسی برای پردازش اطلاعات
 String normalizeDigits(String value) {
   const persian = '۰۱۲۳۴۵۶۷۸۹';
   const arabic = '٠١٢٣٤٥٦٧٨٩';
@@ -61,7 +61,6 @@ String normalizeDigits(String value) {
   return value;
 }
 
-// تبدیل اعداد انگلیسی به فارسی برای نمایش
 String toPersianDigits(String value) {
   const english = '0123456789';
   const persian = '۰۱۲۳۴۵۶۷۸۹';
@@ -104,7 +103,6 @@ String formatPrice(dynamic value) {
   return toPersianDigits(buffer.toString());
 }
 
-// نمایش فارسی تمام سایزها
 String sizeLabel(int size) {
   if (size == 70) return '۷۰×۱۳۰';
   if (size == 80) return '۱۸۰×۸۰';
@@ -1434,14 +1432,78 @@ class BranchesPage extends StatelessWidget {
     String id,
     bool active,
   ) async {
+    if (auth.currentUser?.uid != adminUid) return;
+
     try {
       await db.collection('branches').doc(id).update({
         'active': !active,
       });
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              active ? 'نمایندگی غیرفعال شد.' : 'نمایندگی فعال شد.',
+            ),
+          ),
+        );
+      }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('خطا در تغییر وضعیت: $e')),
+        );
+      }
+    }
+  }
+
+  // حذف نمایندگی با تأیید مدیر
+  Future<void> deleteBranch(
+    BuildContext context,
+    String id,
+    String name,
+  ) async {
+    if (auth.currentUser?.uid != adminUid) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('حذف نمایندگی'),
+        content: Text(
+          'آیا از حذف «$name» مطمئن هستید؟\n\n'
+          'اطلاعات این نمایندگی از پایگاه داده حذف خواهد شد '
+          'و این کار قابل بازگشت نیست.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('انصراف'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.red,
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('حذف نمایندگی'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await db.collection('branches').doc(id).delete();
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('«$name» با موفقیت حذف شد.')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('خطا در حذف نمایندگی: $e')),
         );
       }
     }
@@ -1530,6 +1592,7 @@ class BranchesPage extends StatelessWidget {
             ...docs.map((doc) {
               final data = doc.data();
               final active = data['active'] == true;
+              final name = readText(data['name']);
               final phones = (data['phones'] as List? ?? [])
                   .map((e) => e.toString())
                   .join(' - ');
@@ -1542,7 +1605,7 @@ class BranchesPage extends StatelessWidget {
                     color: active ? fidelBlue : Colors.grey,
                   ),
                   title: Text(
-                    readText(data['name']),
+                    name,
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                   subtitle: Text(
@@ -1563,6 +1626,7 @@ class BranchesPage extends StatelessWidget {
                           const Divider(),
                           Wrap(
                             spacing: 8,
+                            runSpacing: 4,
                             children: [
                               TextButton.icon(
                                 onPressed: () => editBranch(
@@ -1585,7 +1649,24 @@ class BranchesPage extends StatelessWidget {
                                       : Icons.visibility,
                                 ),
                                 label: Text(
-                                  active ? 'غیرفعال کردن' : 'فعال کردن',
+                                  active
+                                      ? 'غیرفعال کردن'
+                                      : 'فعال کردن',
+                                ),
+                              ),
+                              TextButton.icon(
+                                onPressed: () => deleteBranch(
+                                  context,
+                                  doc.id,
+                                  name,
+                                ),
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  color: Colors.red,
+                                ),
+                                label: const Text(
+                                  'حذف نمایندگی',
+                                  style: TextStyle(color: Colors.red),
                                 ),
                               ),
                             ],
