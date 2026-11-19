@@ -26,13 +26,35 @@ jobs:
       - name: Save Firebase Configuration
         run: |
           set -e
-          test -f pubspec.yaml
-          test -f lib/main.dart
-          test -f assets/logo.png
-          test -f android/app/google-services.json
+
+          echo "Checking repository files..."
+          echo "Current directory:"
+          pwd
+
+          echo "Repository contents:"
+          ls -la
+
+          for file in \
+            pubspec.yaml \
+            lib/main.dart \
+            assets/logo.png \
+            android/app/google-services.json
+          do
+            if [ -f "$file" ]; then
+              echo "FOUND: $file"
+            else
+              echo "MISSING: $file"
+              echo "Checking nearby folders:"
+              ls -la
+              exit 1
+            fi
+          done
+
           mkdir -p "$RUNNER_TEMP/fidel"
           cp android/app/google-services.json "$RUNNER_TEMP/fidel/google-services.json"
           rm -rf android
+
+          echo "Firebase configuration saved successfully."
 
       - name: Generate Android Project
         run: |
@@ -371,5 +393,5 @@ jobs:
       - name: Upload Customer APK
         uses: actions/upload-artifact@v4
         with:
-          name: fidel-customer-android-apk 
+          name: fidel-customer-android-apk
           path: fidel-customer-release.apk
