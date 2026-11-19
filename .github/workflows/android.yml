@@ -1,5 +1,5 @@
 
-name: Build Fidel APK
+name: Build Fidel Customer APK
 
 on:
   workflow_dispatch:
@@ -41,7 +41,7 @@ jobs:
           mkdir -p android/app
           cp "$RUNNER_TEMP/fidel/google-services.json" android/app/google-services.json
 
-      - name: Configure Firebase
+      - name: Configure Firebase and Customer App
         run: |
           set -e
           python3 - <<'PY'
@@ -49,15 +49,22 @@ jobs:
           import json
           import re
 
-          config = json.loads(Path("android/app/google-services.json").read_text())
+          package_name = "com.fidel.customer"
+
+          config = json.loads(
+              Path("android/app/google-services.json").read_text()
+          )
+
           packages = [
               c["client_info"]["android_client_info"]["package_name"]
               for c in config.get("client", [])
               if "android_client_info" in c.get("client_info", {})
           ]
 
-          if "com.fidel.app" not in packages:
-              raise SystemExit("Firebase package name must be com.fidel.app")
+          if package_name not in packages:
+              raise SystemExit(
+                  "Firebase package name must be " + package_name
+              )
 
           settings = Path("android/settings.gradle.kts")
           if not settings.exists():
@@ -100,35 +107,50 @@ jobs:
                   if path.suffix == ".kts":
                       content, count = re.subn(
                           r'applicationId\s*=\s*["\'][^"\']+["\']',
-                          'applicationId = "com.fidel.app"',
+                          f'applicationId = "{package_name}"',
                           content,
                           count=1
                       )
                       if count == 0:
                           content = re.sub(
                               r'defaultConfig\s*\{',
-                              'defaultConfig {\n        applicationId = "com.fidel.app"',
+                              f'defaultConfig {{\n        applicationId = "{package_name}"',
                               content,
                               count=1
                           )
                   else:
                       content, count = re.subn(
                           r'applicationId\s+["\'][^"\']+["\']',
-                          'applicationId "com.fidel.app"',
+                          f'applicationId "{package_name}"',
                           content,
                           count=1
                       )
                       if count == 0:
                           content = re.sub(
                               r'defaultConfig\s*\{',
-                              'defaultConfig {\n        applicationId "com.fidel.app"',
+                              f'defaultConfig {{\n        applicationId "{package_name}"',
                               content,
                               count=1
                           )
 
               path.write_text(content)
 
-          print("Firebase configuration completed successfully.")
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          content = manifest.read_text()
+
+          content, count = re.subn(
+              r'android:label="[^"]*"',
+              'android:label="تشک فیدل مشتری"',
+              content,
+              count=1
+          )
+
+          if count == 0:
+              raise SystemExit("Android app label not found")
+
+          manifest.write_text(content)
+
+          print("Customer app and Firebase configured successfully.")
           PY
 
       - name: Configure Release Signing
@@ -327,7 +349,7 @@ jobs:
               raise SystemExit("Android Gradle file not found")
 
           path.write_text(content)
-          print("Fidel release signing configured successfully.")
+          print("Customer release signing configured successfully.")
           PY
 
       - name: Get SHA Fingerprints
@@ -341,13 +363,13 @@ jobs:
       - name: Generate App Icon
         run: dart run flutter_launcher_icons
 
-      - name: Build Fidel APK
+      - name: Build Customer APK
         run: |
           flutter build apk --release
-          cp build/app/outputs/flutter-apk/app-release.apk "$GITHUB_WORKSPACE/fidel-release.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "$GITHUB_WORKSPACE/fidel-customer-release.apk"
 
-      - name: Upload APK
+      - name: Upload Customer APK
         uses: actions/upload-artifact@v4
         with:
-          name: fidel-android-apk
-          path: fidel-release.apk
+          name: fidel-customer-android-apk
+          path: fidel-customer-release.apk
