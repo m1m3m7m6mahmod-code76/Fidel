@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -91,8 +92,12 @@ String formatPrice(dynamic value) {
   return normalizeDigits(buffer.toString());
 }
 
+// اصلاح نمایش سایز ۸۰ به ۱۸۰×۸۰
 String sizeLabel(int size) {
-  return size == 70 ? '۷۰×۱۳۰' : '${normalizeDigits('$size')}×۲۰۰';
+  if (size == 70) return '۷۰×۱۳۰';
+  if (size == 80) return '۱۸۰×۸۰';
+
+  return '${normalizeDigits('$size')}×۲۰۰';
 }
 
 String normalizeCategory(dynamic value, String documentId) {
