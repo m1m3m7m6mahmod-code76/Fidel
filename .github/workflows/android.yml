@@ -371,5 +371,5 @@ jobs:
       - name: Upload Customer APK
         uses: actions/upload-artifact@v4
         with:
-          name: fidel-customer-android-apk
+          name: fidel-customer-android-apk 
           path: fidel-customer-release.apk
