@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -49,6 +48,7 @@ String readText(dynamic value, [String fallback = '']) {
   return value.toString();
 }
 
+// تبدیل اعداد فارسی و عربی به انگلیسی برای پردازش اطلاعات
 String normalizeDigits(String value) {
   const persian = '۰۱۲۳۴۵۶۷۸۹';
   const arabic = '٠١٢٣٤٥٦٧٨٩';
@@ -56,6 +56,18 @@ String normalizeDigits(String value) {
   for (int i = 0; i < 10; i++) {
     value = value.replaceAll(persian[i], '$i');
     value = value.replaceAll(arabic[i], '$i');
+  }
+
+  return value;
+}
+
+// تبدیل اعداد انگلیسی به فارسی برای نمایش
+String toPersianDigits(String value) {
+  const english = '0123456789';
+  const persian = '۰۱۲۳۴۵۶۷۸۹';
+
+  for (int i = 0; i < 10; i++) {
+    value = value.replaceAll(english[i], persian[i]);
   }
 
   return value;
@@ -89,15 +101,15 @@ String formatPrice(dynamic value) {
     }
   }
 
-  return normalizeDigits(buffer.toString());
+  return toPersianDigits(buffer.toString());
 }
 
-// اصلاح نمایش سایز ۸۰ به ۱۸۰×۸۰
+// نمایش فارسی تمام سایزها
 String sizeLabel(int size) {
   if (size == 70) return '۷۰×۱۳۰';
   if (size == 80) return '۱۸۰×۸۰';
 
-  return '${normalizeDigits('$size')}×۲۰۰';
+  return toPersianDigits('$size×200');
 }
 
 String normalizeCategory(dynamic value, String documentId) {
@@ -779,7 +791,7 @@ class ProductManagementPage extends StatelessWidget {
                                         ),
                                       ),
                                       Text(
-                                        'موجودی: ${quantity == null ? 'ثبت نشده' : readText(quantity)}',
+                                        'موجودی: ${quantity == null ? 'ثبت نشده' : toPersianDigits(readText(quantity))}',
                                         style: const TextStyle(
                                           fontSize: 12,
                                           color: Colors.black54,
@@ -1766,7 +1778,9 @@ class _WhatsappSettingsPageState extends State<WhatsappSettingsPage> {
             ),
             const SizedBox(height: 8),
             SelectableText(
-              savedPhone.isEmpty ? 'هنوز شماره‌ای ثبت نشده است.' : savedPhone,
+              savedPhone.isEmpty
+                  ? 'هنوز شماره‌ای ثبت نشده است.'
+                  : savedPhone,
               style: const TextStyle(
                 color: fidelBlue,
                 fontSize: 17,
