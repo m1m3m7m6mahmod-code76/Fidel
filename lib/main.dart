@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' as intl;
 import 'package:url_launcher/url_launcher.dart';
 
 const Color fidelBlue = Color(0xFF12345A);
@@ -140,7 +140,7 @@ String formatPrice(dynamic value) {
   final number = num.tryParse(raw);
   if (number == null) return 'قیمت ثبت نشده';
 
-  final formatted = NumberFormat('#,###', 'en_US').format(number);
+  final formatted = intl.NumberFormat('#,###', 'en_US').format(number);
   return '${toPersianDigits(formatted)} تومان';
 }
 
@@ -405,7 +405,6 @@ class _ProductsPageState extends State<ProductsPage> {
             ],
           ),
         ),
-
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: SegmentedButton<String>(
@@ -429,9 +428,7 @@ class _ProductsPageState extends State<ProductsPage> {
             },
           ),
         ),
-
         const SizedBox(height: 8),
-
         Expanded(
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: db.collection('products').snapshots(),
@@ -556,7 +553,6 @@ class _ProductCardState extends State<ProductCard> {
             productId: widget.productId,
             height: 190,
           ),
-
           Padding(
             padding: const EdgeInsets.all(14),
             child: Column(
@@ -570,20 +566,14 @@ class _ProductCardState extends State<ProductCard> {
                     color: fidelBlue,
                   ),
                 ),
-
                 const SizedBox(height: 10),
-
                 if (type.isNotEmpty)
                   _infoRow('نوع تشک', type),
-
                 if (height.isNotEmpty)
                   _infoRow('ارتفاع', height),
-
                 _infoRow('ضمانت', warranty),
-
                 if (features.isNotEmpty)
                   _infoRow('ویژگی‌ها', features),
-
                 if (description.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   Text(
@@ -594,18 +584,14 @@ class _ProductCardState extends State<ProductCard> {
                     ),
                   ),
                 ],
-
                 const Divider(height: 25),
-
                 const Text(
                   'انتخاب سایز:',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-
                 const SizedBox(height: 8),
-
                 DropdownButtonFormField<int>(
                   value: selectedSize,
                   isExpanded: true,
@@ -630,9 +616,7 @@ class _ProductCardState extends State<ProductCard> {
                     }
                   },
                 ),
-
                 const SizedBox(height: 14),
-
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(12),
@@ -661,9 +645,7 @@ class _ProductCardState extends State<ProductCard> {
                     ],
                   ),
                 ),
-
                 const SizedBox(height: 12),
-
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
@@ -790,14 +772,11 @@ class BranchesPage extends StatelessWidget {
                         ),
                       ],
                     ),
-
                     const SizedBox(height: 12),
-
                     Text(
                       address,
                       style: const TextStyle(height: 1.7),
                     ),
-
                     if (phones.isNotEmpty) ...[
                       const Divider(height: 24),
                       const Text(
@@ -867,9 +846,7 @@ class ContactPage extends StatelessWidget {
               size: 85,
               color: fidelBlue,
             ),
-
             const SizedBox(height: 18),
-
             const Text(
               'ارتباط با فیدل',
               style: TextStyle(
@@ -878,18 +855,14 @@ class ContactPage extends StatelessWidget {
                 color: fidelBlue,
               ),
             ),
-
             const SizedBox(height: 12),
-
             const Text(
               'برای دریافت مشاوره، راهنمایی انتخاب تشک و ثبت سفارش، '
               'از طریق واتساپ با کارشناسان فیدل در ارتباط باشید.',
               textAlign: TextAlign.center,
               style: TextStyle(height: 1.9),
             ),
-
             const SizedBox(height: 25),
-
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
@@ -911,9 +884,7 @@ class ContactPage extends StatelessWidget {
                 ),
               ),
             ),
-
             const SizedBox(height: 25),
-
             const Text(
               'کیفیت رمز ماندگاریست',
               style: TextStyle(
