@@ -7,20 +7,19 @@ import 'product_images.dart';
 
 const String adminUid = 'mbYMqJC4fHUgf1Mf3IhzyEeOa982';
 const Color fidelBlue = Color(0xFF12345A);
-
+const Color fidelGold = Color(0xFFC5A66A);
 final db = FirebaseFirestore.instance;
 final auth = FirebaseAuth.instance;
-
 const List<int> productSizes = [70, 80, 90, 120, 140, 160, 180];
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
-  runApp(const FidelApp());
+  runApp(const FidelAdminApp());
 }
 
-class FidelApp extends StatelessWidget {
-  const FidelApp({super.key});
+class FidelAdminApp extends StatelessWidget {
+  const FidelAdminApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -28,9 +27,31 @@ class FidelApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'مدیریت فیدل',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: fidelBlue),
         useMaterial3: true,
-        fontFamily: 'Roboto',
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: fidelBlue,
+          primary: fidelBlue,
+          secondary: fidelGold,
+        ),
+        scaffoldBackgroundColor: const Color(0xFFF4F6F9),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: fidelBlue,
+          foregroundColor: Colors.white,
+          centerTitle: true,
+        ),
+        inputDecorationTheme: const InputDecorationTheme(
+          border: OutlineInputBorder(),
+          filled: true,
+          fillColor: Colors.white,
+        ),
+        cardTheme: CardThemeData(
+          color: Colors.white,
+          elevation: 1,
+          margin: const EdgeInsets.symmetric(vertical: 6),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(15),
+          ),
+        ),
       ),
       home: const Directionality(
         textDirection: TextDirection.rtl,
@@ -40,173 +61,100 @@ class FidelApp extends StatelessWidget {
   }
 }
 
-// =====================================================
-// ابزارهای عمومی
-// =====================================================
-
-String readText(dynamic value, [String fallback = '']) {
-  if (value == null) return fallback;
-  return value.toString();
-}
+String readText(dynamic value, [String fallback = '']) =>
+    value == null ? fallback : value.toString();
 
 String normalizeDigits(String value) {
   const persian = '۰۱۲۳۴۵۶۷۸۹';
   const arabic = '٠١٢٣٤٥٦٧٨٩';
-
   for (int i = 0; i < 10; i++) {
-    value = value.replaceAll(persian[i], '$i');
-    value = value.replaceAll(arabic[i], '$i');
+    value = value.replaceAll(persian[i], '$i').replaceAll(arabic[i], '$i');
   }
-
   return value;
 }
 
 int? parseNumber(dynamic value) {
   if (value == null) return null;
-
-  final text = normalizeDigits(value.toString())
-      .replaceAll(',', '')
-      .replaceAll('٬', '')
-      .replaceAll(' ', '')
-      .replaceAll('تومان', '')
-      .trim();
-
-  return int.tryParse(text);
+  return int.tryParse(
+    normalizeDigits(value.toString())
+        .replaceAll(',', '')
+        .replaceAll('٬', '')
+        .replaceAll('تومان', '')
+        .replaceAll(' ', '')
+        .trim(),
+  );
 }
 
 String formatPrice(dynamic value) {
-  final number = parseNumber(value);
-  if (number == null) return 'استعلام';
-
-  final raw = number.toString();
-  final buffer = StringBuffer();
-
-  for (int i = 0; i < raw.length; i++) {
-    buffer.write(raw[i]);
-    final remaining = raw.length - i - 1;
-
-    if (remaining > 0 && remaining % 3 == 0) {
-      buffer.write('٬');
+  final n = parseNumber(value);
+  if (n == null) return 'استعلام';
+  final s = n.toString();
+  final out = StringBuffer();
+  for (int i = 0; i < s.length; i++) {
+    out.write(s[i]);
+    if (i < s.length - 1 && (s.length - i - 1) % 3 == 0) {
+      out.write('٬');
     }
   }
-
-  return normalizeDigits(buffer.toString());
+  return normalizeDigits(out.toString());
 }
 
-String sizeLabel(int size) {
-  return size == 70 ? '۷۰×۱۳۰' : '${normalizeDigits('$size')}×۲۰۰';
+String sizeLabel(int size) =>
+    size == 70 ? '۷۰×۱۳۰' : '${normalizeDigits('$size')}×۲۰۰';
+
+String productName(Map<String, dynamic> data, String id) {
+  final value =
+      readText(data['name'] ?? data['نام'] ?? data['نام_محصول']).trim();
+  if (value.isNotEmpty) return value;
+  return id.replaceAll('_plus', '').replaceAll('_economy', '');
 }
 
-String normalizeCategory(dynamic value, String documentId) {
-  final category = readText(value).toLowerCase();
-  final id = documentId.toLowerCase();
-
-  if (category.contains('plus') ||
-      category.contains('پلاس') ||
+String productCategory(Map<String, dynamic> data, String id) {
+  final value =
+      readText(data['category'] ?? data['دسته‌بندی']).toLowerCase();
+  if (value.contains('plus') ||
+      value.contains('پلاس') ||
       id.endsWith('_plus')) {
     return 'PLUS';
   }
-
-  if (category.contains('economy') ||
-      category.contains('اکونومی') ||
-      category.contains('اقتصادی') ||
-      id.endsWith('_economy')) {
-    return 'ECONOMY';
-  }
-
-  return '';
+  return 'ECONOMY';
 }
 
 dynamic findPrice(Map<String, dynamic> data, int size) {
-  final priceValue = data['price'] ?? data['prices'] ?? data['قیمت'];
-
-  if (priceValue is Map) {
-    final value = priceValue[size.toString()] ??
-        priceValue['${size}cm'] ??
-        priceValue['${size}x200'] ??
-        priceValue['${size}×200'] ??
-        priceValue['قیمت_$size'] ??
-        priceValue['قیمت$size'];
-
+  final prices = data['price'] ?? data['prices'] ?? data['قیمت'];
+  if (prices is Map) {
+    final value = prices[size.toString()] ??
+        prices['${size}cm'] ??
+        prices['${size}x200'] ??
+        prices['${size}×200'];
     if (value != null) return value;
   }
-
-  final keys = [
-    'price_$size',
-    'price$size',
-    '${size}_price',
-    '${size}cm',
-    '$size',
-    'قیمت_$size',
-    'قیمت$size',
-    '${size}_قیمت',
-  ];
-
-  for (final key in keys) {
-    if (data[key] != null) return data[key];
-  }
-
-  if (priceValue is num || priceValue is String) {
-    return priceValue;
-  }
-
-  return null;
+  return data['price_$size'] ??
+      data['price$size'] ??
+      data['${size}_price'] ??
+      data['$size'] ??
+      (prices is num || prices is String ? prices : null);
 }
 
 dynamic findQuantity(Map<String, dynamic> data, int size) {
-  final quantityValue =
+  final quantities =
       data['quantity'] ?? data['quantities'] ?? data['تعداد'];
-
-  if (quantityValue is Map) {
-    final value = quantityValue[size.toString()] ??
-        quantityValue['تعداد_$size'] ??
-        quantityValue['تعداد$size'];
-
+  if (quantities is Map) {
+    final value =
+        quantities[size.toString()] ?? quantities['تعداد_$size'];
     if (value != null) return value;
   }
-
-  final keys = [
-    'quantity_$size',
-    'quantity$size',
-    'stock_$size',
-    'stock$size',
-    'تعداد_$size',
-    'تعداد$size',
-    'موجودی_$size',
-    'موجودی$size',
-  ];
-
-  for (final key in keys) {
-    if (data[key] != null) return data[key];
-  }
-
-  return null;
+  return data['quantity_$size'] ??
+      data['quantity$size'] ??
+      data['stock_$size'] ??
+      data['تعداد_$size'] ??
+      data['موجودی_$size'];
 }
 
-String productName(Map<String, dynamic> data, String documentId) {
-  final name = readText(
-    data['name'] ?? data['نام'] ?? data['نام_محصول'],
-  ).trim();
-
-  if (name.isNotEmpty) return name;
-
-  return documentId
-      .replaceAll('_plus', '')
-      .replaceAll('_economy', '');
+void showMessage(BuildContext context, String message) {
+  ScaffoldMessenger.of(context)
+      .showSnackBar(SnackBar(content: Text(message)));
 }
-
-String productField(
-  Map<String, dynamic> data,
-  String englishKey,
-  String persianKey, [
-  String fallback = '',
-]) {
-  return readText(data[englishKey] ?? data[persianKey], fallback);
-}
-
-// =====================================================
-// کنترل ورود مدیر
-// =====================================================
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
@@ -221,239 +169,146 @@ class AuthGate extends StatelessWidget {
             body: Center(child: CircularProgressIndicator()),
           );
         }
-
-        final user = snapshot.data;
-
-        if (user == null) {
-          return const AuthPage();
-        }
-
-        if (user.uid == adminUid) {
-          return const HomePage();
-        }
-
-        return const RejectNonAdminPage();
+        if (snapshot.data == null) return const LoginPage();
+        if (snapshot.data!.uid == adminUid) return const AdminHomePage();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          auth.signOut();
+        });
+        return const Scaffold(
+          body: Center(child: Text('این حساب اجازه ورود ندارد.')),
+        );
       },
     );
   }
 }
 
-class RejectNonAdminPage extends StatefulWidget {
-  const RejectNonAdminPage({super.key});
+class LoginPage extends StatefulWidget {
+  const LoginPage({super.key});
 
   @override
-  State<RejectNonAdminPage> createState() => _RejectNonAdminPageState();
+  State<LoginPage> createState() => _LoginPageState();
 }
 
-class _RejectNonAdminPageState extends State<RejectNonAdminPage> {
-  @override
-  void initState() {
-    super.initState();
-
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await auth.signOut();
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('این حساب اجازه ورود به مدیریت فیدل را ندارد.'),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// =====================================================
-// صفحه ورود مدیر
-// =====================================================
-
-class AuthPage extends StatefulWidget {
-  const AuthPage({super.key});
-
-  @override
-  State<AuthPage> createState() => _AuthPageState();
-}
-
-class _AuthPageState extends State<AuthPage> {
-  final emailController = TextEditingController();
-  final passwordController = TextEditingController();
-
+class _LoginPageState extends State<LoginPage> {
+  final email = TextEditingController();
+  final password = TextEditingController();
   bool loading = false;
-  bool obscurePassword = true;
+  bool obscure = true;
 
-  void message(String value) {
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(value)),
-    );
-  }
-
-  String authError(FirebaseAuthException e) {
-    switch (e.code) {
-      case 'invalid-email':
-        return 'ایمیل معتبر نیست.';
-      case 'user-not-found':
-        return 'حساب کاربری پیدا نشد.';
-      case 'wrong-password':
-      case 'invalid-credential':
-        return 'ایمیل یا رمز عبور اشتباه است.';
-      case 'too-many-requests':
-        return 'تعداد تلاش‌ها زیاد است. کمی بعد امتحان کنید.';
-      case 'network-request-failed':
-        return 'اتصال اینترنت را بررسی کنید.';
-      case 'user-disabled':
-        return 'این حساب کاربری غیرفعال شده است.';
-      default:
-        return 'خطا: ${e.message ?? e.code}';
-    }
-  }
-
-  Future<void> adminLogin() async {
-    final email = emailController.text.trim();
-    final password = passwordController.text;
-
-    if (email.isEmpty || password.isEmpty) {
-      message('ایمیل و رمز عبور را وارد کنید.');
+  Future<void> login() async {
+    if (email.text.trim().isEmpty || password.text.isEmpty) {
+      showMessage(context, 'ایمیل و رمز عبور را وارد کنید.');
       return;
     }
-
     setState(() => loading = true);
-
     try {
       final result = await auth.signInWithEmailAndPassword(
-        email: email,
-        password: password,
+        email: email.text.trim(),
+        password: password.text,
       );
-
       if (result.user?.uid != adminUid) {
         await auth.signOut();
-        message('این حساب اجازه ورود به مدیریت فیدل را ندارد.');
+        if (mounted) showMessage(context, 'این حساب مدیر اصلی نیست.');
       }
     } on FirebaseAuthException catch (e) {
-      message(authError(e));
-    } catch (e) {
-      message('خطای غیرمنتظره رخ داد: $e');
+      if (mounted) {
+        showMessage(context, 'ورود ناموفق بود: ${e.message ?? e.code}');
+      }
     } finally {
       if (mounted) setState(() => loading = false);
     }
   }
 
   Future<void> resetPassword() async {
-    final email = emailController.text.trim();
-
-    if (email.isEmpty) {
-      message('ابتدا ایمیل مدیر را وارد کنید.');
+    if (email.text.trim().isEmpty) {
+      showMessage(context, 'ابتدا ایمیل را وارد کنید.');
       return;
     }
-
     try {
-      await auth.sendPasswordResetEmail(email: email);
-      message('لینک بازیابی رمز به ایمیل ارسال شد.');
-    } on FirebaseAuthException catch (e) {
-      message(authError(e));
+      await auth.sendPasswordResetEmail(email: email.text.trim());
+      if (mounted) showMessage(context, 'لینک بازیابی رمز ارسال شد.');
+    } catch (e) {
+      if (mounted) showMessage(context, 'خطا: $e');
     }
   }
 
   @override
   void dispose() {
-    emailController.dispose();
-    passwordController.dispose();
+    email.dispose();
+    password.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(22),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 430),
             child: Card(
               child: Padding(
-                padding: const EdgeInsets.all(22),
+                padding: const EdgeInsets.all(24),
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Image.asset(
                       'assets/logo.png',
-                      height: 75,
-                      errorBuilder: (_, __, ___) => const Icon(
-                        Icons.bed,
-                        size: 65,
-                        color: fidelBlue,
-                      ),
+                      height: 76,
+                      errorBuilder: (_, __, ___) =>
+                          const Icon(Icons.bed, size: 64, color: fidelBlue),
                     ),
                     const SizedBox(height: 12),
                     const Text(
-                      'مدیریت فیدل',
+                      'پنل مدیریت فیدل',
                       style: TextStyle(
-                        fontSize: 23,
+                        fontSize: 24,
                         fontWeight: FontWeight.bold,
                         color: fidelBlue,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    const Text('ورود مخصوص مدیر اصلی'),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 22),
                     TextField(
-                      controller: emailController,
+                      controller: email,
                       keyboardType: TextInputType.emailAddress,
-                      decoration: const InputDecoration(
-                        labelText: 'ایمیل مدیر',
-                        prefixIcon: Icon(Icons.email_outlined),
-                        border: OutlineInputBorder(),
-                      ),
+                      decoration: const InputDecoration(labelText: 'ایمیل مدیر'),
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 12),
                     TextField(
-                      controller: passwordController,
-                      obscureText: obscurePassword,
+                      controller: password,
+                      obscureText: obscure,
                       decoration: InputDecoration(
                         labelText: 'رمز عبور',
-                        prefixIcon: const Icon(Icons.lock_outline),
-                        border: const OutlineInputBorder(),
                         suffixIcon: IconButton(
-                          onPressed: () {
-                            setState(() {
-                              obscurePassword = !obscurePassword;
-                            });
-                          },
-                          icon: Icon(
-                            obscurePassword
-                                ? Icons.visibility
-                                : Icons.visibility_off,
-                          ),
+                          onPressed: () =>
+                              setState(() => obscure = !obscure),
+                          icon: Icon(obscure
+                              ? Icons.visibility
+                              : Icons.visibility_off),
                         ),
                       ),
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 18),
                     SizedBox(
                       width: double.infinity,
-                      height: 50,
                       child: FilledButton(
-                        onPressed: loading ? null : adminLogin,
+                        onPressed: loading ? null : login,
                         child: loading
-                            ? const CircularProgressIndicator(
-                                color: Colors.white,
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
                             : const Text('ورود به مدیریت'),
                       ),
                     ),
                     TextButton(
-                      onPressed: loading ? null : resetPassword,
+                      onPressed: resetPassword,
                       child: const Text('فراموشی رمز عبور'),
                     ),
-                    const Divider(height: 28),
                     const Text(
                       'کیفیت رمز ماندگاریست',
                       style: TextStyle(
@@ -472,173 +327,233 @@ class _AuthPageState extends State<AuthPage> {
   }
 }
 
-// =====================================================
-// اطلاعات اولیه شعب
-// =====================================================
-
-final List<Map<String, dynamic>> defaultBranches = [
-  {
-    'id': 'branch1',
-    'name': 'شعبه اول فیدل',
-    'address':
-        'تهران، شهرک صنعتی چهاردانگه، خیابان ۲۴، بلوار صنایع شمالی، پلاک ۲۳، تشک فیدل',
-    'phones': [
-      '09331109969',
-      '55264000',
-      '55261436',
-      '55261437',
-    ],
-    'active': true,
-  },
-  {
-    'id': 'branch2',
-    'name': 'شعبه دوم فیدل',
-    'address':
-        'تهران، شهرک صنعتی چهاردانگه، خیابان رحیمی (خیابان اصلی شهرک)، بین خیابان اول و دوم، آلومینیوم‌کاران، پلاک ۷، تشک فیدل',
-    'phones': [
-      '09054206338',
-      '55282990',
-      '55282991',
-    ],
-    'active': true,
-  },
-  {
-    'id': 'factory',
-    'name': 'کارخانه فیدل',
-    'address':
-        'تهران، کمربندی دوم تهران، واوان به سمت کهریزک، بعد از میدان عشقی، پلاک ۷، تشک فیدل',
-    'phones': ['55277905'],
-    'active': true,
-  },
-];
-
-// =====================================================
-// صفحه اصلی مدیریت
-// =====================================================
-
-class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+class AdminHomePage extends StatefulWidget {
+  const AdminHomePage({super.key});
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  State<AdminHomePage> createState() => _AdminHomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
-  int tab = 0;
+class _AdminHomePageState extends State<AdminHomePage> {
+  int selectedIndex = 0;
 
-  Future<void> signOut() async {
-    await auth.signOut();
-  }
+  final pages = const [
+    DashboardPage(),
+    ProductManagementPage(),
+    BestSellersPage(),
+    BranchesPage(),
+    ContactSettingsPage(),
+  ];
 
-  void showInfo() {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('درباره فیدل'),
-        content: const Text(
-          'شرکت تشک فیدل\n'
-          'تولیدکننده انواع تشک با سابقه فعالیت حدود ۲۸ سال\n\n'
-          'کیفیت رمز ماندگاریست',
-        ),
+  final titles = const [
+    'داشبورد فیدل',
+    'مدیریت محصولات',
+    'پرفروش‌ترین محصولات',
+    'شعب و نمایندگی‌ها',
+    'راه‌های ارتباطی',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(titles[selectedIndex]),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('بستن'),
+          IconButton(
+            tooltip: 'خروج از حساب',
+            onPressed: () => auth.signOut(),
+            icon: const Icon(Icons.logout),
           ),
         ],
       ),
+      body: IndexedStack(index: selectedIndex, children: pages),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: selectedIndex,
+        onDestinationSelected: (value) =>
+            setState(() => selectedIndex = value),
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.dashboard_outlined),
+            selectedIcon: Icon(Icons.dashboard),
+            label: 'خانه',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.inventory_2_outlined),
+            selectedIcon: Icon(Icons.inventory_2),
+            label: 'محصولات',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.star_border),
+            selectedIcon: Icon(Icons.star),
+            label: 'پرفروش‌ها',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.store_outlined),
+            selectedIcon: Icon(Icons.store),
+            label: 'شعب',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.contact_phone_outlined),
+            selectedIcon: Icon(Icons.contact_phone),
+            label: 'ارتباطات',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class DashboardPage extends StatelessWidget {
+  const DashboardPage({super.key});
+
+  Widget _stat(String title, IconData icon, Stream<int> stream) {
+    return StreamBuilder<int>(
+      stream: stream,
+      builder: (context, snapshot) {
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(15),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(icon, color: fidelBlue, size: 28),
+                const SizedBox(height: 12),
+                Text(
+                  snapshot.hasData ? '${snapshot.data}' : '—',
+                  style: const TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.bold,
+                    color: fidelBlue,
+                  ),
+                ),
+                Text(title),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (auth.currentUser?.uid != adminUid) {
-      return const AuthPage();
-    }
-
-    final pages = <Widget>[
-      const BranchesPage(isAdmin: true),
-      const ProductManagementPage(),
-    ];
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Image.asset(
-              'assets/logo.png',
-              height: 38,
-              errorBuilder: (_, __, ___) =>
-                  const Icon(Icons.bed, size: 32),
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            gradient: const LinearGradient(
+              colors: [fidelBlue, Color(0xFF294F73)],
             ),
-            const SizedBox(width: 8),
-            const Text(
-              'مدیریت فیدل',
-              style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          child: const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('خوش آمدید', style: TextStyle(color: fidelGold)),
+              SizedBox(height: 8),
+              Text(
+                'مدیریت مجموعه فیدل',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 23,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              SizedBox(height: 6),
+              Text(
+                'کیفیت رمز ماندگاریست',
+                style: TextStyle(color: Colors.white70),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        GridView.count(
+          crossAxisCount: 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisSpacing: 10,
+          mainAxisSpacing: 10,
+          childAspectRatio: 1.5,
+          children: [
+            _stat(
+              'تعداد محصولات',
+              Icons.inventory_2,
+              db.collection('products').snapshots().map((s) => s.size),
+            ),
+            _stat(
+              'تعداد شعب',
+              Icons.store,
+              db.collection('branches').snapshots().map((s) => s.size),
+            ),
+            _stat(
+              'پرفروش‌ها',
+              Icons.star,
+              db
+                  .collection('products')
+                  .where('isBestseller', isEqualTo: true)
+                  .snapshots()
+                  .map((s) => s.size),
+            ),
+            _stat(
+              'راه‌های ارتباطی',
+              Icons.link,
+              db.collection('contact_settings').snapshots().map((s) => s.size),
             ),
           ],
         ),
-        centerTitle: true,
-        actions: [
-          IconButton(
-            onPressed: showInfo,
-            icon: const Icon(Icons.info_outline),
+        const SizedBox(height: 18),
+        const Text(
+          'امکانات پنل',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: fidelBlue,
           ),
-          IconButton(
-            onPressed: signOut,
-            tooltip: 'خروج از حساب',
-            icon: const Icon(Icons.logout),
+        ),
+        const SizedBox(height: 8),
+        const Card(
+          child: ListTile(
+            leading: Icon(Icons.inventory_2, color: fidelBlue),
+            title: Text('مدیریت محصولات'),
+            subtitle: Text('ثبت، ویرایش، قیمت، موجودی و تصویر محصولات'),
           ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Container(
-            width: double.infinity,
-            color: const Color(0xFFE8EEF5),
-            padding: const EdgeInsets.all(9),
-            child: const Text(
-              'حساب مدیر اصلی فیدل',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: fidelBlue,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+        ),
+        const Card(
+          child: ListTile(
+            leading: Icon(Icons.star, color: fidelGold),
+            title: Text('پرفروش‌ترین‌ها'),
+            subtitle: Text('انتخاب و مرتب‌سازی مستقل محصولات پرفروش'),
           ),
-          Expanded(child: pages[tab]),
-        ],
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: tab,
-        onDestinationSelected: (value) {
-          setState(() => tab = value);
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.store_outlined),
-            label: 'مدیریت شعب',
+        ),
+        const Card(
+          child: ListTile(
+            leading: Icon(Icons.store, color: fidelBlue),
+            title: Text('مدیریت شعب'),
+            subtitle: Text('ثبت و ویرایش اطلاعات شعب و نمایندگی‌ها'),
           ),
-          NavigationDestination(
-            icon: Icon(Icons.inventory_2_outlined),
-            label: 'مدیریت کالا',
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
 
-// =====================================================
-// مدیریت محصولات
-// =====================================================
-
-class ProductManagementPage extends StatelessWidget {
+class ProductManagementPage extends StatefulWidget {
   const ProductManagementPage({super.key});
 
-  Future<void> openEditor(
-    BuildContext context, {
+  @override
+  State<ProductManagementPage> createState() =>
+      _ProductManagementPageState();
+}
+
+class _ProductManagementPageState extends State<ProductManagementPage> {
+  String categoryFilter = 'ALL';
+  String searchText = '';
+
+  Future<void> _editProduct({
     String? id,
     Map<String, dynamic>? data,
   }) async {
@@ -652,138 +567,150 @@ class ProductManagementPage extends StatelessWidget {
     );
   }
 
-  Future<void> deleteProduct(
-    BuildContext context,
-    String id,
-    String name,
+  Future<void> _moveProduct(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    int index,
+    int direction,
   ) async {
+    final target = index + direction;
+    if (target < 0 || target >= docs.length) return;
+    final batch = db.batch();
+    batch.set(
+      docs[index].reference,
+      {'sortOrder': target},
+      SetOptions(merge: true),
+    );
+    batch.set(
+      docs[target].reference,
+      {'sortOrder': index},
+      SetOptions(merge: true),
+    );
+    await batch.commit();
+  }
+
+  Future<void> _toggleBestSeller(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final enabled = doc.data()['isBestseller'] == true;
+    await doc.reference.set({
+      'isBestseller': !enabled,
+      'bestsellerOrder': enabled
+          ? FieldValue.delete()
+          : DateTime.now().microsecondsSinceEpoch,
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> _deleteProduct(String id, String name) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (context) => AlertDialog(
         title: const Text('حذف محصول'),
-        content: Text(
-          'آیا از حذف محصول «$name» مطمئن هستید؟\n'
-          'این کار قابل بازگشت نیست.',
-        ),
+        content: Text('محصول «$name» حذف شود؟'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
+            onPressed: () => Navigator.pop(context, false),
             child: const Text('انصراف'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.red,
-            ),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('حذف محصول'),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('حذف'),
           ),
         ],
       ),
     );
-
     if (confirmed != true) return;
-
     try {
       final batch = db.batch();
-
       batch.delete(db.collection('products').doc(id));
       batch.delete(db.collection('product_images').doc(id));
-
       await batch.commit();
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('محصول و عکس آن حذف شدند.')),
-        );
-      }
+      if (mounted) showMessage(context, 'محصول حذف شد.');
     } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('خطا در حذف محصول: $e')),
-        );
-      }
+      if (mounted) showMessage(context, 'خطا در حذف: $e');
     }
-  }
-
-  Future<void> openImageEditor(
-    BuildContext context,
-    String id,
-    String name,
-  ) async {
-    await showDialog<void>(
-      context: context,
-      builder: (_) => ProductImageEditorDialog(
-        productId: id,
-        productName: name,
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (auth.currentUser?.uid != adminUid) {
-      return const Center(
-        child: Text('دسترسی به این بخش مجاز نیست.'),
-      );
-    }
-
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
           child: Row(
             children: [
               const Expanded(
                 child: Text(
-                  'مدیریت محصولات فیدل',
+                  'فهرست محصولات',
                   style: TextStyle(
-                    color: fidelBlue,
-                    fontSize: 20,
+                    fontSize: 19,
                     fontWeight: FontWeight.bold,
+                    color: fidelBlue,
                   ),
                 ),
               ),
               FilledButton.icon(
-                onPressed: () => openEditor(context),
+                onPressed: () => _editProduct(),
                 icon: const Icon(Icons.add),
                 label: const Text('محصول جدید'),
               ),
             ],
           ),
         ),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 14),
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: Text(
-              'قیمت و موجودی هر سایز را جداگانه مدیریت کنید.',
-              style: TextStyle(color: Colors.black54),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: TextField(
+            onChanged: (value) =>
+                setState(() => searchText = value.trim().toLowerCase()),
+            decoration: const InputDecoration(
+              prefixIcon: Icon(Icons.search),
+              hintText: 'جستجوی نام محصول',
             ),
           ),
         ),
-        const SizedBox(height: 8),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Row(
+            children: [
+              _filterChip('همه', 'ALL'),
+              const SizedBox(width: 8),
+              _filterChip('اکونومی', 'ECONOMY'),
+              const SizedBox(width: 8),
+              _filterChip('پلاس', 'PLUS'),
+            ],
+          ),
+        ),
         Expanded(
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: db.collection('products').snapshots(),
             builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
+              if (snapshot.hasError) {
+                return Center(child: Text('خطا: ${snapshot.error}'));
+              }
+              if (!snapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
               }
-
-              if (snapshot.hasError) {
-                return Center(
-                  child: Text('خطا در دریافت محصولات: ${snapshot.error}'),
-                );
-              }
-
-              final docs = snapshot.data?.docs ?? [];
-
+              final docs = snapshot.data!.docs.where((doc) {
+                final data = doc.data();
+                final category = productCategory(data, doc.id);
+                return (categoryFilter == 'ALL' ||
+                        category == categoryFilter) &&
+                    productName(data, doc.id)
+                        .toLowerCase()
+                        .contains(searchText);
+              }).toList();
+              docs.sort((a, b) {
+                final x = a.data()['sortOrder'];
+                final y = b.data()['sortOrder'];
+                if (x is num && y is num) return x.compareTo(y);
+                if (x is num) return -1;
+                if (y is num) return 1;
+                return productName(a.data(), a.id)
+                    .compareTo(productName(b.data(), b.id));
+              });
               if (docs.isEmpty) {
-                return const Center(
-                  child: Text('هنوز محصولی ثبت نشده است.'),
-                );
+                return const Center(child: Text('محصولی پیدا نشد.'));
               }
-
               return ListView.builder(
                 padding: const EdgeInsets.all(12),
                 itemCount: docs.length,
@@ -791,124 +718,112 @@ class ProductManagementPage extends StatelessWidget {
                   final doc = docs[index];
                   final data = doc.data();
                   final name = productName(data, doc.id);
-
-                  final category = normalizeCategory(
-                    data['category'] ?? data['دسته‌بندی'],
-                    doc.id,
-                  );
-
-                  final categoryText =
-                      category == 'PLUS' ? 'پلاس' : 'اکونومی';
-
-                  final warranty = productField(
-                    data,
-                    'warranty',
-                    'ضمانت',
-                    'ثبت نشده',
-                  );
-
+                  final category = productCategory(data, doc.id);
+                  final best = data['isBestseller'] == true;
                   return Card(
-                    margin: const EdgeInsets.only(bottom: 10),
                     child: ExpansionTile(
-                      leading: ProductImageWidget(
-                        productId: doc.id,
-                      ),
+                      leading: ProductImageWidget(productId: doc.id),
                       title: Text(
                         name,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                        ),
+                        style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
-                      subtitle: Text('$categoryText | ضمانت: $warranty'),
+                      subtitle: Text(
+                        '${category == 'PLUS' ? 'پلاس' : 'اکونومی'}'
+                        '${best ? '  ★ پرفروش' : ''}',
+                      ),
                       children: [
                         Padding(
-                          padding: const EdgeInsets.all(14),
+                          padding: const EdgeInsets.all(12),
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                'قیمت و موجودی انبار',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: fidelBlue,
-                                ),
+                              Wrap(
+                                spacing: 8,
+                                children: [
+                                  Chip(
+                                    label: Text(
+                                      'ضمانت: ${readText(data['warranty'], '—')}',
+                                    ),
+                                  ),
+                                  Chip(
+                                    label: Text(
+                                      'ارتفاع: ${readText(data['height'], '—')}',
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: 8),
                               ...productSizes.map((size) {
                                 final price = findPrice(data, size);
                                 final quantity = findQuantity(data, size);
-
                                 if (price == null && quantity == null) {
                                   return const SizedBox.shrink();
                                 }
-
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 5,
+                                return ListTile(
+                                  dense: true,
+                                  title: Text('سایز ${sizeLabel(size)}'),
+                                  subtitle: Text(
+                                    price == null
+                                        ? 'قیمت ثبت نشده'
+                                        : 'قیمت: ${formatPrice(price)} تومان',
                                   ),
-                                  child: Row(
-                                    children: [
-                                      SizedBox(
-                                        width: 75,
-                                        child: Text(sizeLabel(size)),
-                                      ),
-                                      Expanded(
-                                        child: Text(
-                                          price == null
-                                              ? 'قیمت ثبت نشده'
-                                              : '${formatPrice(price)} تومان',
-                                          style: const TextStyle(fontSize: 12),
-                                        ),
-                                      ),
-                                      Text(
-                                        'موجودی: ${quantity == null ? 'ثبت نشده' : readText(quantity)}',
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.black54,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                                  trailing: Text('موجودی: ${quantity ?? '—'}'),
                                 );
                               }),
                               const Divider(),
                               Wrap(
-                                spacing: 8,
+                                alignment: WrapAlignment.center,
                                 children: [
+                                  IconButton(
+                                    tooltip: 'انتقال به بالا',
+                                    onPressed: index == 0
+                                        ? null
+                                        : () => _moveProduct(docs, index, -1),
+                                    icon: const Icon(Icons.arrow_upward),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'انتقال به پایین',
+                                    onPressed: index == docs.length - 1
+                                        ? null
+                                        : () => _moveProduct(docs, index, 1),
+                                    icon: const Icon(Icons.arrow_downward),
+                                  ),
                                   TextButton.icon(
-                                    onPressed: () => openEditor(
-                                      context,
+                                    onPressed: () => _toggleBestSeller(doc),
+                                    icon: Icon(
+                                      best ? Icons.star : Icons.star_border,
+                                    ),
+                                    label: Text(
+                                      best
+                                          ? 'حذف از پرفروش‌ها'
+                                          : 'افزودن به پرفروش‌ها',
+                                    ),
+                                  ),
+                                  TextButton.icon(
+                                    onPressed: () => _editProduct(
                                       id: doc.id,
                                       data: data,
                                     ),
                                     icon: const Icon(Icons.edit),
                                     label: const Text('ویرایش'),
                                   ),
-                                  OutlinedButton.icon(
-                                    onPressed: () => openImageEditor(
-                                      context,
-                                      doc.id,
-                                      name,
+                                  TextButton.icon(
+                                    onPressed: () => showDialog(
+                                      context: context,
+                                      builder: (_) => ProductImageEditorDialog(
+                                        productId: doc.id,
+                                        productName: name,
+                                      ),
                                     ),
-                                    icon: const Icon(
-                                      Icons.photo_camera_outlined,
-                                    ),
+                                    icon: const Icon(Icons.photo),
                                     label: const Text('مدیریت عکس'),
                                   ),
                                   TextButton.icon(
-                                    onPressed: () => deleteProduct(
-                                      context,
-                                      doc.id,
-                                      name,
-                                    ),
+                                    onPressed: () =>
+                                        _deleteProduct(doc.id, name),
                                     icon: const Icon(
                                       Icons.delete_outline,
                                       color: Colors.red,
                                     ),
-                                    label: const Text(
-                                      'حذف',
-                                      style: TextStyle(color: Colors.red),
-                                    ),
+                                    label: const Text('حذف'),
                                   ),
                                 ],
                               ),
@@ -926,11 +841,15 @@ class ProductManagementPage extends StatelessWidget {
       ],
     );
   }
-}
 
-// =====================================================
-// فرم افزودن و ویرایش محصول
-// =====================================================
+  Widget _filterChip(String label, String value) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: categoryFilter == value,
+      onSelected: (_) => setState(() => categoryFilter = value),
+    );
+  }
+}
 
 class ProductEditorDialog extends StatefulWidget {
   final String? documentId;
@@ -943,216 +862,118 @@ class ProductEditorDialog extends StatefulWidget {
   });
 
   @override
-  State<ProductEditorDialog> createState() =>
-      _ProductEditorDialogState();
+  State<ProductEditorDialog> createState() => _ProductEditorDialogState();
 }
 
 class _ProductEditorDialogState extends State<ProductEditorDialog> {
-  final nameController = TextEditingController();
-  final warrantyController = TextEditingController();
-  final heightController = TextEditingController();
-  final typeController = TextEditingController();
-  final descriptionController = TextEditingController();
-
-  final Map<int, TextEditingController> priceControllers = {};
-  final Map<int, TextEditingController> quantityControllers = {};
-
+  late final TextEditingController name;
+  late final TextEditingController warranty;
+  late final TextEditingController height;
+  late final TextEditingController type;
+  late final TextEditingController description;
+  final Map<int, TextEditingController> prices = {};
+  final Map<int, TextEditingController> quantities = {};
   String category = 'ECONOMY';
   bool saving = false;
 
   @override
   void initState() {
     super.initState();
-
     final data = widget.initialData;
-
-    nameController.text = productName(
-      data,
-      widget.documentId ?? '',
+    name = TextEditingController(
+      text: productName(data, widget.documentId ?? ''),
     );
-
-    category = normalizeCategory(
-      data['category'] ?? data['دسته‌بندی'],
-      widget.documentId ?? '',
-    );
-
-    if (category.isEmpty) category = 'ECONOMY';
-
-    warrantyController.text = productField(
-      data,
-      'warranty',
-      'ضمانت',
-    );
-
-    heightController.text = productField(
-      data,
-      'height',
-      'ارتفاع',
-      productField(data, 'thickness', 'ضخامت'),
-    );
-
-    typeController.text = productField(
-      data,
-      'type',
-      'نوع',
-      productField(data, 'features', 'ویژگی‌ها'),
-    );
-
-    descriptionController.text = productField(
-      data,
-      'description',
-      'توضیحات',
-    );
-
+    warranty = TextEditingController(text: readText(data['warranty']));
+    height = TextEditingController(text: readText(data['height']));
+    type = TextEditingController(text: readText(data['type']));
+    description = TextEditingController(text: readText(data['description']));
+    category = productCategory(data, widget.documentId ?? '');
     for (final size in productSizes) {
-      final price = findPrice(data, size);
-      final quantity = findQuantity(data, size);
-
-      priceControllers[size] = TextEditingController(
-        text: price == null ? '' : normalizeDigits(price.toString()),
-      );
-
-      quantityControllers[size] = TextEditingController(
-        text: quantity == null
-            ? ''
-            : normalizeDigits(quantity.toString()),
-      );
+      prices[size] =
+          TextEditingController(text: readText(findPrice(data, size)));
+      quantities[size] =
+          TextEditingController(text: readText(findQuantity(data, size)));
     }
-  }
-
-  void showMessage(String value) {
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(value)),
-    );
   }
 
   Future<void> saveProduct() async {
-    if (auth.currentUser?.uid != adminUid) {
-      showMessage('دسترسی غیرمجاز است.');
+    if (name.text.trim().isEmpty) {
+      showMessage(context, 'نام محصول را وارد کنید.');
       return;
     }
-
-    final name = nameController.text.trim();
-
-    if (name.isEmpty) {
-      showMessage('نام محصول را وارد کنید.');
-      return;
-    }
-
     setState(() => saving = true);
-
     try {
-      final Map<String, dynamic> updateData = {
-        'name': name,
-        'category': category.toLowerCase(),
-        'warranty': warrantyController.text.trim(),
-        'height': heightController.text.trim(),
-        'type': typeController.text.trim(),
-        'features': typeController.text.trim(),
-        'description': descriptionController.text.trim(),
+      final ref = widget.documentId == null
+          ? db.collection('products').doc()
+          : db.collection('products').doc(widget.documentId);
+      final data = <String, dynamic>{
+        'name': name.text.trim(),
+        'category': category,
+        'warranty': warranty.text.trim(),
+        'height': height.text.trim(),
+        'type': type.text.trim(),
+        'description': description.text.trim(),
         'updatedAt': FieldValue.serverTimestamp(),
       };
-
-      for (final size in productSizes) {
-        final priceText = priceControllers[size]!.text.trim();
-        final quantityText = quantityControllers[size]!.text.trim();
-
-        if (priceText.isNotEmpty) {
-          final price = parseNumber(priceText);
-
-          if (price == null || price < 0) {
-            showMessage('قیمت سایز ${sizeLabel(size)} معتبر نیست.');
-            setState(() => saving = false);
-            return;
-          }
-
-          updateData['price_$size'] = price;
-        }
-
-        if (quantityText.isNotEmpty) {
-          final quantity = parseNumber(quantityText);
-
-          if (quantity == null || quantity < 0) {
-            showMessage('موجودی سایز ${sizeLabel(size)} معتبر نیست.');
-            setState(() => saving = false);
-            return;
-          }
-
-          updateData['quantity_$size'] = quantity;
-        }
-      }
-
-      final collection = db.collection('products');
-
       if (widget.documentId == null) {
-        updateData['createdAt'] = FieldValue.serverTimestamp();
-        await collection.add(updateData);
-      } else {
-        await collection.doc(widget.documentId).set(
-          updateData,
-          SetOptions(merge: true),
-        );
+        data['createdAt'] = FieldValue.serverTimestamp();
+        data['sortOrder'] = DateTime.now().millisecondsSinceEpoch;
+        data['isBestseller'] = false;
       }
-
-      if (mounted) {
-        final messenger = ScaffoldMessenger.of(context);
-        Navigator.pop(context);
-
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(
-              widget.documentId == null
-                  ? 'محصول جدید ثبت شد.'
-                  : 'اطلاعات محصول ویرایش شد.',
-            ),
-          ),
-        );
+      for (final size in productSizes) {
+        final priceText = prices[size]!.text.trim();
+        final quantityText = quantities[size]!.text.trim();
+        if (priceText.isNotEmpty) {
+          data['price_$size'] = parseNumber(priceText) ?? priceText;
+        } else if (widget.initialData.containsKey('price_$size')) {
+          data['price_$size'] = FieldValue.delete();
+        }
+        if (quantityText.isNotEmpty) {
+          data['quantity_$size'] =
+              parseNumber(quantityText) ?? quantityText;
+        } else if (widget.initialData.containsKey('quantity_$size')) {
+          data['quantity_$size'] = FieldValue.delete();
+        }
       }
+      await ref.set(data, SetOptions(merge: true));
+      if (mounted) Navigator.pop(context);
     } catch (e) {
-      showMessage('ذخیره محصول با خطا روبه‌رو شد: $e');
+      if (mounted) showMessage(context, 'خطا در ذخیره محصول: $e');
     } finally {
       if (mounted) setState(() => saving = false);
     }
   }
 
-  Widget buildTextField(
+  Widget _field(
     TextEditingController controller,
     String label, {
-    int maxLines = 1,
+    int lines = 1,
     TextInputType? keyboardType,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 10),
       child: TextField(
         controller: controller,
-        maxLines: maxLines,
+        maxLines: lines,
         keyboardType: keyboardType,
-        decoration: InputDecoration(
-          labelText: label,
-          border: const OutlineInputBorder(),
-        ),
+        decoration: InputDecoration(labelText: label),
       ),
     );
   }
 
   @override
   void dispose() {
-    nameController.dispose();
-    warrantyController.dispose();
-    heightController.dispose();
-    typeController.dispose();
-    descriptionController.dispose();
-
-    for (final controller in priceControllers.values) {
+    name.dispose();
+    warranty.dispose();
+    height.dispose();
+    type.dispose();
+    description.dispose();
+    for (final controller in prices.values) {
       controller.dispose();
     }
-
-    for (final controller in quantityControllers.values) {
+    for (final controller in quantities.values) {
       controller.dispose();
     }
-
     super.dispose();
   }
 
@@ -1161,17 +982,17 @@ class _ProductEditorDialogState extends State<ProductEditorDialog> {
     return Dialog(
       insetPadding: const EdgeInsets.all(12),
       child: SizedBox(
-        width: 600,
+        width: 620,
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(14),
               child: Row(
                 children: [
                   Expanded(
                     child: Text(
                       widget.documentId == null
-                          ? 'افزودن محصول جدید'
+                          ? 'افزودن محصول'
                           : 'ویرایش محصول',
                       style: const TextStyle(
                         fontSize: 19,
@@ -1181,9 +1002,7 @@ class _ProductEditorDialogState extends State<ProductEditorDialog> {
                     ),
                   ),
                   IconButton(
-                    onPressed: saving
-                        ? null
-                        : () => Navigator.pop(context),
+                    onPressed: saving ? null : () => Navigator.pop(context),
                     icon: const Icon(Icons.close),
                   ),
                 ],
@@ -1192,15 +1011,12 @@ class _ProductEditorDialogState extends State<ProductEditorDialog> {
             const Divider(height: 1),
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(14),
                 children: [
-                  buildTextField(nameController, 'نام محصول'),
+                  _field(name, 'نام محصول'),
                   DropdownButtonFormField<String>(
                     value: category,
-                    decoration: const InputDecoration(
-                      labelText: 'گروه محصول',
-                      border: OutlineInputBorder(),
-                    ),
+                    decoration: const InputDecoration(labelText: 'گروه محصول'),
                     items: const [
                       DropdownMenuItem(
                         value: 'ECONOMY',
@@ -1213,47 +1029,26 @@ class _ProductEditorDialogState extends State<ProductEditorDialog> {
                     ],
                     onChanged: saving
                         ? null
-                        : (value) {
-                            if (value != null) {
-                              setState(() => category = value);
-                            }
-                          },
+                        : (value) =>
+                            setState(() => category = value ?? 'ECONOMY'),
                   ),
-                  const SizedBox(height: 12),
-                  buildTextField(warrantyController, 'مدت ضمانت'),
-                  buildTextField(heightController, 'ارتفاع تشک'),
-                  buildTextField(
-                    typeController,
-                    'نوع ساخت و ویژگی‌ها',
-                    maxLines: 2,
-                  ),
-                  buildTextField(
-                    descriptionController,
-                    'توضیحات محصول',
-                    maxLines: 3,
-                  ),
-                  const Divider(height: 28),
+                  const SizedBox(height: 10),
+                  _field(warranty, 'مدت ضمانت'),
+                  _field(height, 'ارتفاع تشک'),
+                  _field(type, 'نوع ساخت و ویژگی‌ها', lines: 2),
+                  _field(description, 'توضیحات محصول', lines: 3),
+                  const SizedBox(height: 8),
                   const Text(
                     'قیمت و موجودی هر سایز',
                     style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 17,
                       color: fidelBlue,
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'قیمت‌ها را به تومان وارد کنید. '
-                    'موجودی فقط برای مدیر قابل مشاهده است.',
-                    style: TextStyle(
-                      color: Colors.black54,
-                      fontSize: 12,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  ...productSizes.map((size) {
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 10),
+                  const SizedBox(height: 8),
+                  ...productSizes.map(
+                    (size) => Card(
                       child: Padding(
                         padding: const EdgeInsets.all(10),
                         child: Column(
@@ -1261,71 +1056,43 @@ class _ProductEditorDialogState extends State<ProductEditorDialog> {
                           children: [
                             Text(
                               'سایز ${sizeLabel(size)}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                              ),
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.bold),
                             ),
                             const SizedBox(height: 8),
-                            TextField(
-                              controller: priceControllers[size],
+                            _field(
+                              prices[size]!,
+                              'قیمت به تومان',
                               keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                labelText: 'قیمت به تومان',
-                                hintText: 'مثلاً 22950000',
-                                border: OutlineInputBorder(),
-                                isDense: true,
-                              ),
                             ),
-                            const SizedBox(height: 8),
-                            TextField(
-                              controller: quantityControllers[size],
+                            _field(
+                              quantities[size]!,
+                              'موجودی انبار',
                               keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                labelText: 'تعداد موجودی انبار',
-                                hintText: 'مثلاً 3',
-                                border: OutlineInputBorder(),
-                                isDense: true,
-                              ),
                             ),
                           ],
                         ),
                       ),
-                    );
-                  }),
+                    ),
+                  ),
                 ],
               ),
             ),
             const Divider(height: 1),
             Padding(
               padding: const EdgeInsets.all(12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: saving
-                          ? null
-                          : () => Navigator.pop(context),
-                      child: const Text('انصراف'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: saving ? null : saveProduct,
-                      icon: saving
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(Icons.save),
-                      label: const Text('ذخیره محصول'),
-                    ),
-                  ),
-                ],
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: saving ? null : saveProduct,
+                  child: saving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('ذخیره محصول'),
+                ),
               ),
             ),
           ],
@@ -1335,93 +1102,222 @@ class _ProductEditorDialogState extends State<ProductEditorDialog> {
   }
 }
 
-// =====================================================
-// مدیریت شعب و نمایندگی‌ها
-// =====================================================
+class BestSellersPage extends StatelessWidget {
+  const BestSellersPage({super.key});
+
+  Future<void> _move(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    int index,
+    int direction,
+  ) async {
+    final target = index + direction;
+    if (target < 0 || target >= docs.length) return;
+    final batch = db.batch();
+    batch.set(
+      docs[index].reference,
+      {'bestsellerOrder': target},
+      SetOptions(merge: true),
+    );
+    batch.set(
+      docs[target].reference,
+      {'bestsellerOrder': index},
+      SetOptions(merge: true),
+    );
+    await batch.commit();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        const Padding(
+          padding: EdgeInsets.all(16),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'پرفروش‌ترین محصولات',
+                  style: TextStyle(
+                    color: fidelBlue,
+                    fontSize: 19,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text('انتخاب و مرتب‌سازی این بخش از قسمت محصولات انجام می‌شود.'),
+              ],
+            ),
+          ),
+        ),
+        Expanded(
+          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: db
+                .collection('products')
+                .where('isBestseller', isEqualTo: true)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Center(child: Text('خطا: ${snapshot.error}'));
+              }
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final docs = snapshot.data!.docs.toList();
+              docs.sort((a, b) {
+                final x = a.data()['bestsellerOrder'];
+                final y = b.data()['bestsellerOrder'];
+                if (x is num && y is num) return x.compareTo(y);
+                if (x is num) return -1;
+                if (y is num) return 1;
+                return 0;
+              });
+              if (docs.isEmpty) {
+                return const Center(
+                  child: Text('هنوز محصولی به پرفروش‌ها اضافه نشده است.'),
+                );
+              }
+              return ListView.builder(
+                padding: const EdgeInsets.all(12),
+                itemCount: docs.length,
+                itemBuilder: (context, index) {
+                  final doc = docs[index];
+                  final data = doc.data();
+                  return Card(
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: const Color(0xFFF3EBDD),
+                        child: Text('${index + 1}'),
+                      ),
+                      title: Text(
+                        productName(data, doc.id),
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text(
+                        productCategory(data, doc.id) == 'PLUS'
+                            ? 'پلاس'
+                            : 'اکونومی',
+                      ),
+                      trailing: Wrap(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            onPressed: index == 0
+                                ? null
+                                : () => _move(docs, index, -1),
+                            icon: const Icon(Icons.keyboard_arrow_up),
+                          ),
+                          IconButton(
+                            onPressed: index == docs.length - 1
+                                ? null
+                                : () => _move(docs, index, 1),
+                            icon: const Icon(Icons.keyboard_arrow_down),
+                          ),
+                          IconButton(
+                            tooltip: 'حذف از پرفروش‌ها',
+                            onPressed: () => doc.reference.set({
+                              'isBestseller': false,
+                              'bestsellerOrder': FieldValue.delete(),
+                            }, SetOptions(merge: true)),
+                            icon: const Icon(Icons.star, color: fidelGold),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+final List<Map<String, dynamic>> defaultBranches = [
+  {
+    'id': 'branch1',
+    'name': 'شعبه اول فیدل',
+    'address':
+        'تهران، شهرک صنعتی چهاردانگه، خیابان ۲۴، بلوار صنایع شمالی، پلاک ۲۳، تشک فیدل',
+    'phones': ['09331109969', '55264000', '55261436', '55261437'],
+    'active': true,
+  },
+  {
+    'id': 'branch2',
+    'name': 'شعبه دوم فیدل',
+    'address':
+        'تهران، شهرک صنعتی چهاردانگه، خیابان رحیمی، بین خیابان اول و دوم، آلومینیوم‌کاران، پلاک ۷',
+    'phones': ['09054206338', '55282990', '55282991'],
+    'active': true,
+  },
+  {
+    'id': 'factory',
+    'name': 'کارخانه فیدل',
+    'address':
+        'تهران، کمربندی دوم تهران، واوان به سمت کهریزک، بعد از میدان عشقی، پلاک ۷',
+    'phones': ['55277905'],
+    'active': true,
+  },
+];
 
 class BranchesPage extends StatelessWidget {
-  final bool isAdmin;
+  const BranchesPage({super.key});
 
-  const BranchesPage({super.key, required this.isAdmin});
-
-  Future<void> saveDefaultBranches(BuildContext context) async {
-    if (auth.currentUser?.uid != adminUid) return;
-
+  Future<void> _saveDefaults(BuildContext context) async {
     try {
+      final batch = db.batch();
       for (final branch in defaultBranches) {
-        final id = branch['id'] as String;
         final data = Map<String, dynamic>.from(branch);
-        data.remove('id');
-
-        await db.collection('branches').doc(id).set(
+        final id = data.remove('id') as String;
+        batch.set(
+          db.collection('branches').doc(id),
           data,
           SetOptions(merge: true),
         );
       }
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('اطلاعات اولیه شعب ذخیره شد.'),
-          ),
-        );
-      }
+      await batch.commit();
+      if (context.mounted) showMessage(context, 'شعب اولیه ثبت شدند.');
     } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('خطا در ذخیره شعب: $e')),
-        );
-      }
+      if (context.mounted) showMessage(context, 'خطا: $e');
     }
   }
 
-  Future<void> editBranch(
+  Future<void> _editBranch(
     BuildContext context, {
     String? id,
-    Map<String, dynamic>? oldData,
+    Map<String, dynamic>? old,
   }) async {
-    if (auth.currentUser?.uid != adminUid) return;
-
-    final nameController = TextEditingController(
-      text: readText(oldData?['name']),
+    final name = TextEditingController(text: readText(old?['name']));
+    final address = TextEditingController(text: readText(old?['address']));
+    final phones = TextEditingController(
+      text: (old?['phones'] as List? ?? []).join('\n'),
     );
-
-    final addressController = TextEditingController(
-      text: readText(oldData?['address']),
-    );
-
-    final phonesController = TextEditingController(
-      text: (oldData?['phones'] as List? ?? []).join('\n'),
-    );
-
     final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(
-          id == null ? 'افزودن شعبه یا نمایندگی' : 'ویرایش شعبه',
-        ),
+        title: Text(id == null ? 'افزودن شعبه' : 'ویرایش شعبه'),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
-                controller: nameController,
-                decoration: const InputDecoration(
-                  labelText: 'نام شعبه یا نمایندگی',
-                ),
+                controller: name,
+                decoration: const InputDecoration(labelText: 'نام شعبه'),
               ),
               const SizedBox(height: 10),
               TextField(
-                controller: addressController,
+                controller: address,
                 maxLines: 3,
                 decoration: const InputDecoration(labelText: 'آدرس'),
               ),
               const SizedBox(height: 10),
               TextField(
-                controller: phonesController,
+                controller: phones,
                 maxLines: 4,
                 decoration: const InputDecoration(
-                  labelText: 'شماره تماس‌ها (هر شماره در یک خط)',
+                  labelText: 'شماره‌ها؛ هر شماره در یک خط',
                 ),
               ),
             ],
@@ -1439,168 +1335,101 @@ class BranchesPage extends StatelessWidget {
         ],
       ),
     );
-
-    if (result == true) {
-      final name = nameController.text.trim();
-      final address = addressController.text.trim();
-
-      final phones = phonesController.text
-          .split('\n')
-          .map((e) => e.trim())
-          .where((e) => e.isNotEmpty)
-          .toList();
-
-      if (name.isEmpty || address.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('نام و آدرس را وارد کنید.'),
-          ),
-        );
-      } else {
-        try {
-          final doc = id == null
-              ? db.collection('branches').doc()
-              : db.collection('branches').doc(id);
-
-          await doc.set({
-            'name': name,
-            'address': address,
-            'phones': phones,
-            'active': oldData?['active'] ?? true,
-          }, SetOptions(merge: true));
-
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('اطلاعات ذخیره شد.')),
-            );
-          }
-        } catch (e) {
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('خطا در ذخیره: $e')),
-            );
-          }
-        }
-      }
+    if (result == true &&
+        name.text.trim().isNotEmpty &&
+        address.text.trim().isNotEmpty) {
+      final ref = id == null
+          ? db.collection('branches').doc()
+          : db.collection('branches').doc(id);
+      await ref.set({
+        'name': name.text.trim(),
+        'address': address.text.trim(),
+        'phones': phones.text
+            .split('\n')
+            .map((value) => value.trim())
+            .where((value) => value.isNotEmpty)
+            .toList(),
+        'active': old?['active'] ?? true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
     }
-
-    nameController.dispose();
-    addressController.dispose();
-    phonesController.dispose();
+    name.dispose();
+    address.dispose();
+    phones.dispose();
   }
 
-  Future<void> toggleBranch(
+  Future<void> _deleteBranch(
     BuildContext context,
-    String id,
-    bool active,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
-    if (auth.currentUser?.uid != adminUid) return;
-
-    try {
-      await db.collection('branches').doc(id).update({
-        'active': !active,
-      });
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('خطا در تغییر وضعیت: $e')),
-        );
-      }
-    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('حذف شعبه'),
+        content: Text('«${readText(doc.data()['name'])}» حذف شود؟'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('انصراف'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('حذف'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await doc.reference.delete();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (auth.currentUser?.uid != adminUid) {
-      return const Center(
-        child: Text('دسترسی به این بخش مجاز نیست.'),
-      );
-    }
-
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: db.collection('branches').snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return Center(
-            child: Text('خطا در دریافت شعب: ${snapshot.error}'),
-          );
+          return Center(child: Text('خطا: ${snapshot.error}'));
         }
-
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-
-        final docs = snapshot.data?.docs ?? [];
-
-        if (docs.isEmpty) {
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              const Text(
-                'شعب و کارخانه فیدل',
-                style: TextStyle(
-                  fontSize: 21,
-                  fontWeight: FontWeight.bold,
-                  color: fidelBlue,
-                ),
-              ),
-              const SizedBox(height: 10),
-              const Text(
-                'اطلاعات اولیه شعب آماده است. '
-                'برای ثبت آن‌ها در پایگاه داده، دکمه زیر را بزنید.',
-              ),
-              const SizedBox(height: 14),
-              FilledButton.icon(
-                onPressed: () => saveDefaultBranches(context),
-                icon: const Icon(Icons.save),
-                label: const Text('ثبت شعب اولیه در فایربیس'),
-              ),
-              const SizedBox(height: 16),
-              ...defaultBranches.map(
-                (branch) => Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.store, color: fidelBlue),
-                    title: Text(readText(branch['name'])),
-                    subtitle: Text(
-                      '${branch['address']}\n'
-                      '${(branch['phones'] as List).join(' - ')}',
+        final docs = snapshot.data!.docs;
+        return ListView(
+          padding: const EdgeInsets.all(14),
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'شعب و کارخانه فیدل',
+                    style: TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.bold,
+                      color: fidelBlue,
                     ),
-                    isThreeLine: true,
                   ),
                 ),
+                FilledButton.icon(
+                  onPressed: () => _editBranch(context),
+                  icon: const Icon(Icons.add),
+                  label: const Text('افزودن'),
+                ),
+              ],
+            ),
+            if (docs.isEmpty) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () => _saveDefaults(context),
+                icon: const Icon(Icons.download),
+                label: const Text('ثبت شعب اولیه فیدل'),
               ),
             ],
-          );
-        }
-
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            const Text(
-              'شعب و کارخانه فیدل',
-              style: TextStyle(
-                fontSize: 21,
-                fontWeight: FontWeight.bold,
-                color: fidelBlue,
-              ),
-            ),
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: () => editBranch(context),
-              icon: const Icon(Icons.add),
-              label: const Text('افزودن شعبه یا نمایندگی'),
-            ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             ...docs.map((doc) {
               final data = doc.data();
-              final active = data['active'] == true;
-
-              final phones = (data['phones'] as List? ?? [])
-                  .map((e) => e.toString())
-                  .join(' - ');
-
+              final active = data['active'] != false;
+              final phones = (data['phones'] as List? ?? []).join(' - ');
               return Card(
-                margin: const EdgeInsets.only(bottom: 12),
                 child: ExpansionTile(
                   leading: Icon(
                     Icons.store,
@@ -1610,40 +1439,31 @@ class BranchesPage extends StatelessWidget {
                     readText(data['name']),
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
-                  subtitle: Text(
-                    active ? 'فعال' : 'غیرفعال',
-                    style: TextStyle(
-                      color: active ? Colors.green : Colors.red,
-                    ),
-                  ),
+                  subtitle: Text(active ? 'فعال' : 'غیرفعال'),
                   children: [
                     Padding(
-                      padding: const EdgeInsets.all(14),
+                      padding: const EdgeInsets.all(12),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(readText(data['address'])),
-                          const SizedBox(height: 10),
-                          Text('شماره تماس: $phones'),
-                          const Divider(),
+                          const SizedBox(height: 8),
+                          Text('تماس: $phones'),
                           Wrap(
-                            spacing: 8,
                             children: [
                               TextButton.icon(
-                                onPressed: () => editBranch(
+                                onPressed: () => _editBranch(
                                   context,
                                   id: doc.id,
-                                  oldData: data,
+                                  old: data,
                                 ),
                                 icon: const Icon(Icons.edit),
                                 label: const Text('ویرایش'),
                               ),
                               TextButton.icon(
-                                onPressed: () => toggleBranch(
-                                  context,
-                                  doc.id,
-                                  active,
-                                ),
+                                onPressed: () => doc.reference.set({
+                                  'active': !active,
+                                }, SetOptions(merge: true)),
                                 icon: Icon(
                                   active
                                       ? Icons.visibility_off
@@ -1652,6 +1472,14 @@ class BranchesPage extends StatelessWidget {
                                 label: Text(
                                   active ? 'غیرفعال کردن' : 'فعال کردن',
                                 ),
+                              ),
+                              TextButton.icon(
+                                onPressed: () => _deleteBranch(context, doc),
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  color: Colors.red,
+                                ),
+                                label: const Text('حذف'),
                               ),
                             ],
                           ),
@@ -1662,6 +1490,142 @@ class BranchesPage extends StatelessWidget {
                 ),
               );
             }),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class ContactSettingsPage extends StatefulWidget {
+  const ContactSettingsPage({super.key});
+
+  @override
+  State<ContactSettingsPage> createState() => _ContactSettingsPageState();
+}
+
+class _ContactSettingsPageState extends State<ContactSettingsPage> {
+  static const Map<String, String> fields = {
+    'whatsapp': 'شماره یا لینک واتساپ',
+    'eitaa': 'لینک ایتا',
+    'rubika': 'لینک روبیکا',
+    'bale': 'لینک بله',
+    'telegram': 'لینک تلگرام',
+    'website': 'آدرس وب‌سایت',
+    'instagram': 'آدرس اینستاگرام',
+  };
+
+  Future<void> _edit(Map<String, dynamic> old) async {
+    final controllers = <String, TextEditingController>{
+      for (final entry in fields.entries)
+        entry.key: TextEditingController(text: readText(old[entry.key])),
+    };
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('ویرایش راه‌های ارتباطی'),
+        content: SizedBox(
+          width: 480,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: fields.entries.map((entry) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: TextField(
+                    controller: controllers[entry.key],
+                    decoration: InputDecoration(labelText: entry.value),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('انصراف'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('ذخیره'),
+          ),
+        ],
+      ),
+    );
+    if (result == true) {
+      final data = <String, dynamic>{
+        for (final entry in controllers.entries)
+          entry.key: entry.value.text.trim(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      await db
+          .collection('contact_settings')
+          .doc('main')
+          .set(data, SetOptions(merge: true));
+      if (mounted) showMessage(context, 'اطلاعات ارتباطی ذخیره شد.');
+    }
+    for (final controller in controllers.values) {
+      controller.dispose();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: db.collection('contact_settings').doc('main').snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(child: Text('خطا: ${snapshot.error}'));
+        }
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final data = snapshot.data!.data() ?? {};
+        return ListView(
+          padding: const EdgeInsets.all(14),
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'راه‌های ارتباطی فیدل',
+                    style: TextStyle(
+                      color: fidelBlue,
+                      fontSize: 19,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                FilledButton.icon(
+                  onPressed: () => _edit(data),
+                  icon: const Icon(Icons.edit),
+                  label: const Text('ویرایش'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            ...fields.entries.map((entry) {
+              final value = readText(data[entry.key]);
+              return Card(
+                child: ListTile(
+                  leading: const Icon(Icons.link, color: fidelBlue),
+                  title: Text(entry.value),
+                  subtitle: Text(
+                    value.isEmpty ? 'ثبت نشده' : value,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              );
+            }),
+            const Padding(
+              padding: EdgeInsets.all(8),
+              child: Text(
+                'این اطلاعات در مسیر contact_settings/main ذخیره می‌شود. برای نمایش تغییرات در اپ مشتری، اپ مشتری نیز باید همین مسیر را بخواند.',
+                style: TextStyle(fontSize: 12, color: Colors.black54),
+              ),
+            ),
           ],
         );
       },
