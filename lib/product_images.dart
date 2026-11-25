@@ -4,15 +4,16 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 
 const Color _fidelBlue = Color(0xFF12345A);
 const Color _fidelGold = Color(0xFFC5A66A);
 
 final FirebaseFirestore _db = FirebaseFirestore.instance;
-final FirebaseStorage _storage = FirebaseStorage.instance;
 
+const int _maxImageBytes = 600 * 1024;
+
+/// نمایش عکس اصلی محصول
 class ProductImageWidget extends StatelessWidget {
   final String productId;
 
@@ -23,67 +24,67 @@ class ProductImageWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: _db.collection('product_images').doc(productId).snapshots(),
+    final imagesRef = _db
+        .collection('product_images')
+        .doc(productId)
+        .collection('images');
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: imagesRef.orderBy('sortOrder').snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData || !snapshot.data!.exists) {
-          return _placeholder();
-        }
+        if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+          final docs = [...snapshot.data!.docs];
 
-        final data = snapshot.data!.data() ?? {};
-        final images = List<Map<String, dynamic>>.from(
-          (data['images'] ?? []).map(
-            (e) => Map<String, dynamic>.from(e),
-          ),
-        );
+          docs.sort((a, b) {
+            final aPrimary = a.data()['isPrimary'] == true ? 0 : 1;
+            final bPrimary = b.data()['isPrimary'] == true ? 0 : 1;
 
-        if (images.isNotEmpty) {
-          images.sort((a, b) {
-            final aPrimary = a['isPrimary'] == true ? 0 : 1;
-            final bPrimary = b['isPrimary'] == true ? 0 : 1;
             if (aPrimary != bPrimary) {
               return aPrimary.compareTo(bPrimary);
             }
-            return (a['sortOrder'] ?? 0).compareTo(
-              b['sortOrder'] ?? 0,
-            );
+
+            return (a.data()['sortOrder'] ?? 0)
+                .compareTo(b.data()['sortOrder'] ?? 0);
           });
 
-          final url = images.first['url']?.toString() ?? '';
+          final encoded = docs.first.data()['base64']?.toString() ?? '';
 
-          if (url.isNotEmpty) {
-            return ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.network(
-                url,
-                fit: BoxFit.cover,
-                width: double.infinity,
-                height: double.infinity,
-                errorBuilder: (_, __, ___) => _placeholder(),
-              ),
-            );
+          if (encoded.isNotEmpty) {
+            try {
+              return _showImage(base64Decode(encoded));
+            } catch (_) {}
           }
         }
 
-        final oldBase64 = data['base64']?.toString() ?? '';
-        if (oldBase64.isNotEmpty) {
-          try {
-            return ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.memory(
-                base64Decode(oldBase64),
-                fit: BoxFit.cover,
-                width: double.infinity,
-                height: double.infinity,
-              ),
-            );
-          } catch (_) {
+        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: _db.collection('product_images').doc(productId).snapshots(),
+          builder: (context, oldSnapshot) {
+            final data = oldSnapshot.data?.data() ?? {};
+            final oldBase64 = data['base64']?.toString() ?? '';
+
+            if (oldBase64.isNotEmpty) {
+              try {
+                return _showImage(base64Decode(oldBase64));
+              } catch (_) {}
+            }
+
             return _placeholder();
-          }
-        }
-
-        return _placeholder();
+          },
+        );
       },
+    );
+  }
+
+  Widget _showImage(Uint8List bytes) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Image.memory(
+        bytes,
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        errorBuilder: (_, __, ___) => _placeholder(),
+      ),
     );
   }
 
@@ -104,6 +105,7 @@ class ProductImageWidget extends StatelessWidget {
   }
 }
 
+/// مدیریت گالری تصاویر محصول
 class ProductImageEditorDialog extends StatefulWidget {
   final String productId;
   final String productName;
@@ -124,11 +126,18 @@ class _ProductImageEditorDialogState
   final ImagePicker _picker = ImagePicker();
 
   List<Map<String, dynamic>> _images = [];
-  final List<String> _removedPaths = [];
 
   bool _loading = true;
   bool _saving = false;
   double _progress = 0;
+
+  CollectionReference<Map<String, dynamic>> get _imagesRef =>
+      _db.collection('product_images')
+          .doc(widget.productId)
+          .collection('images');
+
+  DocumentReference<Map<String, dynamic>> get _parentRef =>
+      _db.collection('product_images').doc(widget.productId);
 
   @override
   void initState() {
@@ -138,44 +147,54 @@ class _ProductImageEditorDialogState
 
   Future<void> _loadImages() async {
     try {
-      final doc = await _db
-          .collection('product_images')
-          .doc(widget.productId)
-          .get();
+      final result = await _imagesRef.orderBy('sortOrder').get();
 
-      if (doc.exists) {
-        final data = doc.data() ?? {};
+      if (result.docs.isNotEmpty) {
+        final loaded = <Map<String, dynamic>>[];
 
-        final images = List<Map<String, dynamic>>.from(
-          (data['images'] ?? []).map(
-            (e) => Map<String, dynamic>.from(e),
-          ),
-        );
+        for (final doc in result.docs) {
+          final data = doc.data();
+          final encoded = data['base64']?.toString() ?? '';
 
-        final oldBase64 = data['base64']?.toString() ?? '';
+          if (encoded.isEmpty) continue;
 
-        if (images.isEmpty && oldBase64.isNotEmpty) {
           try {
-            images.add({
-              'url': null,
-              'path': null,
-              'bytes': base64Decode(oldBase64),
-              'isPrimary': true,
-              'sortOrder': 0,
+            loaded.add({
+              'id': doc.id,
+              'key': doc.id,
+              'bytes': base64Decode(encoded),
+              'isPrimary': data['isPrimary'] == true,
+              'sortOrder': data['sortOrder'] ?? 0,
             });
           } catch (_) {}
         }
 
-        images.sort(
-          (a, b) => (a['sortOrder'] ?? 0).compareTo(
-            b['sortOrder'] ?? 0,
-          ),
-        );
-
         if (mounted) {
-          setState(() {
-            _images = images;
-          });
+          setState(() => _images = loaded);
+        }
+      } else {
+        // سازگاری با عکس قدیمی
+        final oldDoc = await _parentRef.get();
+        final oldBase64 = oldDoc.data()?['base64']?.toString() ?? '';
+
+        if (oldBase64.isNotEmpty) {
+          try {
+            final bytes = base64Decode(oldBase64);
+
+            if (mounted) {
+              setState(() {
+                _images = [
+                  {
+                    'id': 'legacy',
+                    'key': 'legacy',
+                    'bytes': bytes,
+                    'isPrimary': true,
+                    'sortOrder': 0,
+                  }
+                ];
+              });
+            }
+          } catch (_) {}
         }
       }
     } catch (e) {
@@ -190,27 +209,42 @@ class _ProductImageEditorDialogState
   Future<void> _pickImages() async {
     try {
       final files = await _picker.pickMultiImage(
-        maxWidth: 1600,
-        maxHeight: 1600,
-        imageQuality: 85,
+        maxWidth: 800,
+        maxHeight: 800,
+        imageQuality: 50,
       );
 
       if (files.isEmpty) return;
+
+      int added = 0;
 
       for (final file in files) {
         final bytes = await file.readAsBytes();
 
         if (bytes.isEmpty) continue;
 
+        if (bytes.length > _maxImageBytes) {
+          _message(
+            'حجم یکی از تصاویر بیشتر از ۶۰۰ کیلوبایت است؛ '
+            'لطفاً تصویر کم‌حجم‌تری انتخاب کن.',
+          );
+          continue;
+        }
+
+        final key =
+            'new_${DateTime.now().microsecondsSinceEpoch}_$added';
+
         setState(() {
           _images.add({
-            'url': null,
-            'path': null,
+            'id': null,
+            'key': key,
             'bytes': bytes,
             'isPrimary': _images.isEmpty,
             'sortOrder': _images.length,
           });
         });
+
+        added++;
       }
     } catch (e) {
       _message('خطا در انتخاب تصاویر: $e');
@@ -218,13 +252,6 @@ class _ProductImageEditorDialogState
   }
 
   void _removeImage(int index) {
-    final image = _images[index];
-    final path = image['path']?.toString();
-
-    if (path != null && path.isNotEmpty) {
-      _removedPaths.add(path);
-    }
-
     setState(() {
       _images.removeAt(index);
 
@@ -271,86 +298,82 @@ class _ProductImageEditorDialogState
     });
 
     try {
-      final savedImages = <Map<String, dynamic>>[];
+      final existing = await _imagesRef.get();
+      final retainedIds = <String>{};
 
-      for (int i = 0; i < _images.length; i++) {
-        final image = _images[i];
-
-        String? url = image['url']?.toString();
-        String? path = image['path']?.toString();
-
-        final bytes = image['bytes'] as Uint8List?;
-
-        if (bytes != null && (url == null || url.isEmpty)) {
-          final fileName =
-              '${DateTime.now().microsecondsSinceEpoch}_$i.jpg';
-
-          path = 'product_images/${widget.productId}/$fileName';
-
-          final reference = _storage.ref().child(path);
-
-          await reference.putData(
-            bytes,
-            SettableMetadata(contentType: 'image/jpeg'),
-          );
-
-          url = await reference.getDownloadURL();
+      if (_images.isEmpty) {
+        for (final doc in existing.docs) {
+          await doc.reference.delete();
         }
 
-        if (url != null && url.isNotEmpty) {
-          savedImages.add({
-            'url': url,
-            'path': path,
+        await _parentRef.delete();
+      } else {
+        if (!_images.any((e) => e['isPrimary'] == true)) {
+          _images[0]['isPrimary'] = true;
+        }
+
+        for (int i = 0; i < _images.length; i++) {
+          final image = _images[i];
+          final bytes = image['bytes'] as Uint8List;
+
+          if (bytes.length > _maxImageBytes) {
+            throw Exception('حجم یکی از تصاویر بیش از حد مجاز است.');
+          }
+
+          String? id = image['id']?.toString();
+
+          if (id == null || id == 'legacy') {
+            id = _imagesRef.doc().id;
+          }
+
+          retainedIds.add(id);
+
+          await _imagesRef.doc(id).set({
+            'base64': base64Encode(bytes),
             'isPrimary': image['isPrimary'] == true,
             'sortOrder': i,
+            'productName': widget.productName,
+            'updatedAt': FieldValue.serverTimestamp(),
           });
+
+          if (mounted) {
+            setState(() {
+              _progress = (i + 1) / _images.length;
+            });
+          }
         }
 
-        if (mounted) {
-          setState(() {
-            _progress = (i + 1) /
-                (_images.isEmpty ? 1 : _images.length);
-          });
-        }
-      }
-
-      for (final path in _removedPaths) {
-        try {
-          await _storage.ref().child(path).delete();
-        } catch (_) {}
-      }
-
-      if (savedImages.isEmpty) {
-        await _db
-            .collection('product_images')
-            .doc(widget.productId)
-            .delete();
-      } else {
-        if (!savedImages.any((e) => e['isPrimary'] == true)) {
-          savedImages[0]['isPrimary'] = true;
+        // حذف تصاویر قدیمی که از گالری حذف شده‌اند
+        for (final doc in existing.docs) {
+          if (!retainedIds.contains(doc.id)) {
+            await doc.reference.delete();
+          }
         }
 
-        await _db
-            .collection('product_images')
-            .doc(widget.productId)
-            .set({
+        // ثبت اطلاعات گالری و حذف عکس Base64 قدیمی از سند اصلی
+        await _parentRef.set({
           'productName': widget.productName,
-          'images': savedImages,
+          'imageCount': _images.length,
           'updatedAt': FieldValue.serverTimestamp(),
-        });
+          'base64': FieldValue.delete(),
+        }, SetOptions(merge: true));
       }
 
       if (!mounted) return;
 
       Navigator.pop(context);
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('گالری تصاویر با موفقیت ذخیره شد'),
+          content: Text('گالری تصاویر ذخیره شد'),
         ),
       );
     } catch (e) {
       _message('خطا در ذخیره تصاویر: $e');
-      setState(() => _saving = false);
+
+      if (mounted) {
+        setState(() => _saving = false);
+      }
     }
   }
 
@@ -363,23 +386,14 @@ class _ProductImageEditorDialogState
   }
 
   Widget _imagePreview(Map<String, dynamic> image) {
-    final bytes = image['bytes'] as Uint8List?;
-    final url = image['url']?.toString() ?? '';
+    final bytes = image['bytes'] as Uint8List;
 
-    if (bytes != null) {
-      return Image.memory(bytes, fit: BoxFit.cover);
-    }
-
-    if (url.isNotEmpty) {
-      return Image.network(
-        url,
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) =>
-            const Icon(Icons.broken_image_outlined),
-      );
-    }
-
-    return const Icon(Icons.image_outlined);
+    return Image.memory(
+      bytes,
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) =>
+          const Icon(Icons.broken_image_outlined),
+    );
   }
 
   @override
@@ -429,7 +443,7 @@ class _ProductImageEditorDialogState
                 )
               else ...[
                 const Text(
-                  'برای تغییر ترتیب، تصاویر را جابه‌جا کنید. '
+                  'برای تغییر ترتیب، تصاویر را جابه‌جا کن. '
                   'با انتخاب ستاره، عکس اصلی مشخص می‌شود.',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 12),
@@ -451,7 +465,7 @@ class _ProductImageEditorDialogState
                                   image['isPrimary'] == true;
 
                               return Card(
-                                key: ValueKey(image),
+                                key: ValueKey(image['key']),
                                 margin: const EdgeInsets.only(
                                   bottom: 9,
                                 ),
@@ -477,7 +491,7 @@ class _ProductImageEditorDialogState
                                     ),
                                   ),
                                   subtitle: const Text(
-                                    'برای جابه‌جایی نگه دارید',
+                                    'برای جابه‌جایی نگه دار',
                                     style: TextStyle(fontSize: 10),
                                   ),
                                   trailing: Wrap(
