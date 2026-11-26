@@ -551,15 +551,15 @@ class DashboardPage extends StatelessWidget {
               colors: [fidelBlue, Color(0xFF294F73)],
             ),
           ),
-          child: const Column(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
+              const Text(
                 'خوش آمدید',
                 style: TextStyle(color: fidelGold),
               ),
-              SizedBox(height: 8),
-              Text(
+              const SizedBox(height: 8),
+              const Text(
                 'مدیریت مجموعه فیدل',
                 style: TextStyle(
                   color: Colors.white,
@@ -567,7 +567,7 @@ class DashboardPage extends StatelessWidget {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              SizedBox(height: 6),
+              const SizedBox(height: 6),
               StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                 stream: db.collection('app_settings').doc('main').snapshots(),
                 builder: (context, snapshot) => Text(
@@ -1682,7 +1682,6 @@ class BranchesPage extends StatelessWidget {
     );
   }
 }
-
 
 class VideosPage extends StatefulWidget {
   const VideosPage({super.key});
