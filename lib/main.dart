@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -148,6 +152,32 @@ dynamic findQuantity(Map<String, dynamic> data, int size) {
       data['stock_$size'] ??
       data['تعداد_$size'] ??
       data['موجودی_$size'];
+}
+
+Future<void> openFidelLink(BuildContext context, String rawValue, {String? platform}) async {
+  var value = rawValue.trim();
+  if (value.isEmpty) {
+    showMessage(context, 'هنوز لینکی ثبت نشده است.');
+    return;
+  }
+  if (platform == 'whatsapp' && RegExp(r'^[+0-9\s()-]+$').hasMatch(value)) {
+    var digits = value.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.startsWith('0')) digits = '98${digits.substring(1)}';
+    value = 'https://wa.me/$digits';
+  } else if (!value.contains('://')) {
+    value = 'https://$value';
+  }
+  final uri = Uri.tryParse(value);
+  if (uri == null || !uri.hasScheme) {
+    showMessage(context, 'لینک معتبر نیست.');
+    return;
+  }
+  try {
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && context.mounted) showMessage(context, 'باز کردن لینک ممکن نشد.');
+  } catch (e) {
+    if (context.mounted) showMessage(context, 'خطا در باز کردن لینک: $e');
+  }
 }
 
 void showMessage(BuildContext context, String message) {
@@ -308,11 +338,18 @@ class _LoginPageState extends State<LoginPage> {
                       onPressed: resetPassword,
                       child: const Text('فراموشی رمز عبور'),
                     ),
-                    const Text(
-                      'کیفیت رمز ماندگاریست',
-                      style: TextStyle(
-                        color: fidelBlue,
-                        fontWeight: FontWeight.bold,
+                    StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                      stream: db.collection('app_settings').doc('main').snapshots(),
+                      builder: (context, snapshot) => Text(
+                        readText(
+                          snapshot.data?.data()?['slogan'],
+                          'کیفیت رمز ماندگاریست',
+                        ),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: fidelBlue,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ],
@@ -342,6 +379,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
     BestSellersPage(),
     BranchesPage(),
     ContactSettingsPage(),
+    VideosPage(),
   ];
 
   final titles = const [
@@ -350,14 +388,74 @@ class _AdminHomePageState extends State<AdminHomePage> {
     'پرفروش‌ترین محصولات',
     'شعب و نمایندگی‌ها',
     'راه‌های ارتباطی',
+    'ویدئوهای فیدل',
   ];
+
+  Future<void> _editSlogan() async {
+    final ref = db.collection('app_settings').doc('main');
+    final current = await ref.get();
+    final controller = TextEditingController(
+      text: readText(current.data()?['slogan'], 'کیفیت رمز ماندگاریست'),
+    );
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('ویرایش شعار فیدل'),
+        content: TextField(
+          controller: controller,
+          maxLines: 2,
+          decoration: const InputDecoration(labelText: 'شعار مجموعه'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('انصراف'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('ذخیره'),
+          ),
+        ],
+      ),
+    );
+    if (result == true && controller.text.trim().isNotEmpty) {
+      await ref.set({
+        'slogan': controller.text.trim(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      if (mounted) showMessage(context, 'شعار فیدل ذخیره شد.');
+    }
+    controller.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(titles[selectedIndex]),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Image.asset(
+              'assets/logo.png',
+              height: 34,
+              width: 42,
+              fit: BoxFit.contain,
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                titles[selectedIndex],
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
         actions: [
+          IconButton(
+            tooltip: 'ویرایش شعار',
+            onPressed: _editSlogan,
+            icon: const Icon(Icons.edit_note),
+          ),
           IconButton(
             tooltip: 'خروج از حساب',
             onPressed: () => auth.signOut(),
@@ -396,6 +494,11 @@ class _AdminHomePageState extends State<AdminHomePage> {
             icon: Icon(Icons.contact_phone_outlined),
             selectedIcon: Icon(Icons.contact_phone),
             label: 'ارتباطات',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.video_library_outlined),
+            selectedIcon: Icon(Icons.video_library),
+            label: 'ویدئوها',
           ),
         ],
       ),
@@ -465,9 +568,15 @@ class DashboardPage extends StatelessWidget {
                 ),
               ),
               SizedBox(height: 6),
-              Text(
-                'کیفیت رمز ماندگاریست',
-                style: TextStyle(color: Colors.white70),
+              StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                stream: db.collection('app_settings').doc('main').snapshots(),
+                builder: (context, snapshot) => Text(
+                  readText(
+                    snapshot.data?.data()?['slogan'],
+                    'کیفیت رمز ماندگاریست',
+                  ),
+                  style: const TextStyle(color: Colors.white70),
+                ),
               ),
             ],
           ),
@@ -753,6 +862,24 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
                                   ),
                                 ],
                               ),
+                              if (readText(data['type']).trim().isNotEmpty ||
+                                  readText(data['description']).trim().isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                if (readText(data['type']).trim().isNotEmpty)
+                                  ListTile(
+                                    dense: true,
+                                    leading: const Icon(Icons.layers_outlined, color: fidelBlue),
+                                    title: const Text('نوع ساخت و ویژگی‌ها'),
+                                    subtitle: Text(readText(data['type'])),
+                                  ),
+                                if (readText(data['description']).trim().isNotEmpty)
+                                  ListTile(
+                                    dense: true,
+                                    leading: const Icon(Icons.description_outlined, color: fidelBlue),
+                                    title: const Text('توضیحات محصول'),
+                                    subtitle: Text(readText(data['description'])),
+                                  ),
+                              ],
                               ...productSizes.map((size) {
                                 final price = findPrice(data, size);
                                 final quantity = findQuantity(data, size);
@@ -1359,6 +1486,35 @@ class BranchesPage extends StatelessWidget {
     phones.dispose();
   }
 
+  Future<void> _pickBranchImage(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1000,
+        maxHeight: 1000,
+        imageQuality: 55,
+      );
+      if (picked == null) return;
+      final bytes = await picked.readAsBytes();
+      if (bytes.isEmpty || bytes.length > 450 * 1024) {
+        if (context.mounted) {
+          showMessage(context, 'حجم عکس باید کمتر از ۴۵۰ کیلوبایت باشد.');
+        }
+        return;
+      }
+      await doc.reference.set({
+        'imageBase64': base64Encode(bytes),
+        'imageUpdatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      if (context.mounted) showMessage(context, 'عکس شعبه ذخیره شد.');
+    } catch (e) {
+      if (context.mounted) showMessage(context, 'خطا در ثبت عکس شعبه: $e');
+    }
+  }
+
   Future<void> _deleteBranch(
     BuildContext context,
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
@@ -1447,11 +1603,40 @@ class BranchesPage extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          if (readText(data['imageBase64']).isNotEmpty)
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Image.memory(
+                                base64Decode(readText(data['imageBase64'])),
+                                width: double.infinity,
+                                height: 170,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                              ),
+                            ),
+                          const SizedBox(height: 8),
                           Text(readText(data['address'])),
                           const SizedBox(height: 8),
                           Text('تماس: $phones'),
                           Wrap(
                             children: [
+                              TextButton.icon(
+                                onPressed: () => _pickBranchImage(context, doc),
+                                icon: const Icon(Icons.add_photo_alternate_outlined),
+                                label: Text(
+                                  readText(data['imageBase64']).isEmpty
+                                      ? 'افزودن عکس شعبه'
+                                      : 'تغییر عکس شعبه',
+                                ),
+                              ),
+                              if (readText(data['imageBase64']).isNotEmpty)
+                                TextButton.icon(
+                                  onPressed: () => doc.reference.set({
+                                    'imageBase64': FieldValue.delete(),
+                                  }, SetOptions(merge: true)),
+                                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                  label: const Text('حذف عکس'),
+                                ),
                               TextButton.icon(
                                 onPressed: () => _editBranch(
                                   context,
@@ -1488,6 +1673,196 @@ class BranchesPage extends StatelessWidget {
                       ),
                     ),
                   ],
+                ),
+              );
+            }),
+          ],
+        );
+      },
+    );
+  }
+}
+
+
+class VideosPage extends StatefulWidget {
+  const VideosPage({super.key});
+
+  @override
+  State<VideosPage> createState() => _VideosPageState();
+}
+
+class _VideosPageState extends State<VideosPage> {
+  Future<void> _editVideo({String? id, Map<String, dynamic>? old}) async {
+    final title = TextEditingController(text: readText(old?['title']));
+    final url = TextEditingController(text: readText(old?['url']));
+    final description = TextEditingController(text: readText(old?['description']));
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(id == null ? 'افزودن ویدئو' : 'ویرایش ویدئو'),
+        content: SizedBox(
+          width: 480,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: title,
+                  decoration: const InputDecoration(labelText: 'عنوان ویدئو'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: url,
+                  decoration: const InputDecoration(
+                    labelText: 'لینک ویدئو (آپارات، یوتیوب یا لینک مستقیم)',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: description,
+                  maxLines: 3,
+                  decoration: const InputDecoration(labelText: 'توضیحات (اختیاری)'),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('انصراف'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('ذخیره'),
+          ),
+        ],
+      ),
+    );
+    if (result == true) {
+      if (title.text.trim().isEmpty || url.text.trim().isEmpty) {
+        showMessage(context, 'عنوان و لینک ویدئو را وارد کنید.');
+      } else {
+        final ref = id == null
+            ? db.collection('videos').doc()
+            : db.collection('videos').doc(id);
+        await ref.set({
+          'title': title.text.trim(),
+          'url': url.text.trim(),
+          'description': description.text.trim(),
+          'updatedAt': FieldValue.serverTimestamp(),
+          if (id == null) 'createdAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        if (mounted) showMessage(context, 'اطلاعات ویدئو ذخیره شد.');
+      }
+    }
+    title.dispose();
+    url.dispose();
+    description.dispose();
+  }
+
+  Future<void> _deleteVideo(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('حذف ویدئو'),
+        content: Text('«${readText(doc.data()['title'])}» حذف شود؟'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('انصراف'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('حذف'),
+          ),
+        ],
+      ),
+    );
+    if (yes == true) await doc.reference.delete();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: db.collection('videos').snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(child: Text('خطا: ${snapshot.error}'));
+        }
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final docs = [...snapshot.data!.docs];
+        docs.sort((a, b) => readText(b.data()['createdAt'])
+            .compareTo(readText(a.data()['createdAt'])));
+        return ListView(
+          padding: const EdgeInsets.all(14),
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'ویدئوهای فیدل',
+                    style: TextStyle(
+                      color: fidelBlue,
+                      fontSize: 19,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                FilledButton.icon(
+                  onPressed: () => _editVideo(),
+                  icon: const Icon(Icons.add),
+                  label: const Text('افزودن ویدئو'),
+                ),
+              ],
+            ),
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                'در این بخش لینک ویدئوهای معرفی محصولات، کارخانه و مجموعه را ثبت کنید.',
+              ),
+            ),
+            if (docs.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: Text('هنوز ویدئویی ثبت نشده است.')),
+              ),
+            ...docs.map((doc) {
+              final data = doc.data();
+              return Card(
+                child: ListTile(
+                  leading: const Icon(
+                    Icons.play_circle_outline,
+                    color: fidelBlue,
+                    size: 34,
+                  ),
+                  title: Text(
+                    readText(data['title']),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: Text(
+                    readText(data['description']).isEmpty
+                        ? readText(data['url'])
+                        : '${readText(data['description'])}\n${readText(data['url'])}',
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  isThreeLine: readText(data['description']).isNotEmpty,
+                  onTap: () => openFidelLink(context, readText(data['url'])),
+                  trailing: PopupMenuButton<String>(
+                    onSelected: (value) {
+                      if (value == 'edit') _editVideo(id: doc.id, old: data);
+                      if (value == 'delete') _deleteVideo(doc);
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: 'edit', child: Text('ویرایش')),
+                      PopupMenuItem(value: 'delete', child: Text('حذف')),
+                    ],
+                  ),
                 ),
               );
             }),
@@ -1617,6 +1992,9 @@ class _ContactSettingsPageState extends State<ContactSettingsPage> {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
+                  onTap: value.isEmpty
+                      ? null
+                      : () => openFidelLink(context, value, platform: entry.key),
                 ),
               );
             }),
