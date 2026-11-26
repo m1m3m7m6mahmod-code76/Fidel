@@ -43,7 +43,7 @@ class FidelAdminApp extends StatelessWidget {
           filled: true,
           fillColor: Colors.white,
         ),
-        cardTheme: CardTheme(
+        cardTheme: CardThemeData(
           color: Colors.white,
           elevation: 1,
           margin: const EdgeInsets.symmetric(vertical: 6),
@@ -1201,7 +1201,6 @@ class BestSellersPage extends StatelessWidget {
                             : 'اکونومی',
                       ),
                       trailing: Wrap(
-                        mainAxisSize: MainAxisSize.min,
                         children: [
                           IconButton(
                             onPressed: index == 0
